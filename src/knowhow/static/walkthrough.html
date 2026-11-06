@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulation Walkthrough</title>
+<style>
+  :root {
+    --bg:#F7F7F5; --card:#FFFFFF; --ink:#1B1F23; --muted:#5E656D; --faint:#8A9097; --line:#E2E4E0;
+    --accent:#0F6E6E; --accent-bg:#E4F1F0; --hl:#FFF4C2; --ok:#1E7A46; --part:#9A6A00; --no:#B42318;
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#14171A; --card:#1C2024; --ink:#E7E9EA; --muted:#A3AAB1; --faint:#7C848C; --line:#2C3238;
+      --accent:#5CC2BE; --accent-bg:#183433; --hl:#4A4220; --ok:#5BC48A; --part:#E0B24A; --no:#F07A6E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#14171A; --card:#1C2024; --ink:#E7E9EA; --muted:#A3AAB1; --faint:#7C848C; --line:#2C3238;
+    --accent:#5CC2BE; --accent-bg:#183433; --hl:#4A4220; --ok:#5BC48A; --part:#E0B24A; --no:#F07A6E;
+  }
+  * { box-sizing:border-box; }
+  html { scroll-padding-top: 120px; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system, system-ui, "Segoe UI", sans-serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:0 16px 80px; }
+  header.top { position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:1px solid var(--line); }
+  header.top .wrap { padding-top:14px; padding-bottom:12px; }
+  .eyebrow { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); font-weight:600; }
+  h1 { font-size:20px; margin:2px 0 10px; font-weight:650; }
+  nav.steps { display:flex; gap:6px; flex-wrap:wrap; }
+  nav.steps button { font:inherit; font-size:14px; border:1px solid var(--line); background:var(--card); color:var(--ink);
+    border-radius:999px; padding:6px 14px; cursor:pointer; }
+  nav.steps button .n { color:var(--faint); margin-right:6px; font-variant-numeric:tabular-nums; }
+  nav.steps button[aria-current="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+  nav.steps button[aria-current="true"] .n { color:rgba(255,255,255,.75); }
+  :root[data-theme="dark"] nav.steps button[aria-current="true"],
+  :root[data-theme="dark"] nav.steps button[aria-current="true"] .n { color:#0B1514; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) nav.steps button[aria-current="true"],
+    :root:not([data-theme="light"]) nav.steps button[aria-current="true"] .n { color:#0B1514; } }
+  section.step { display:none; padding-top:28px; }
+  section.step.on { display:block; }
+  h2 { font-size:26px; margin:0 0 6px; font-family:var(--serif); font-weight:600; }
+  h3 { font-size:17px; margin:30px 0 10px; }
+  .lead { color:var(--muted); margin:0 0 22px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  .stack > * + * { margin-top:12px; }
+  dl.kv { margin:0; display:grid; grid-template-columns:auto 1fr; gap:6px 16px; }
+  dl.kv dt { color:var(--muted); font-size:14px; padding-top:1px; }
+  dl.kv dd { margin:0; }
+  ol.how { padding-left:22px; margin:0; }
+  ol.how li + li { margin-top:8px; }
+  .facts { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; }
+  .fact { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .fact b { display:block; font-size:20px; font-variant-numeric:tabular-nums; }
+  .fact span { font-size:13px; color:var(--muted); }
+  .phone { width:220px; border:1px solid var(--line); border-radius:26px; background:var(--card); padding:22px 18px 18px; flex:none; }
+  .phone .eyebrow { font-size:10px; }
+  .phone .q { font-family:var(--serif); font-size:17px; line-height:1.3; margin-top:8px; }
+  .phone .more { margin-top:16px; border:1px solid var(--accent); color:var(--accent); border-radius:20px; text-align:center; font-size:12px; padding:6px; font-weight:600; }
+  .row { display:flex; gap:18px; align-items:flex-start; }
+  @media (max-width:560px) { .row { flex-direction:column; } }
+  .group-card h4 { margin:0 0 8px; font-size:15px; }
+  .member { padding:8px 0; border-top:1px solid var(--line); }
+  .member:first-of-type { border-top:none; }
+  .member .name { font-weight:600; }
+  .member .angle { color:var(--muted); }
+  details { margin-top:4px; }
+  summary { cursor:pointer; color:var(--accent); font-size:14px; }
+  ul.lessons { margin:6px 0 0; padding-left:18px; font-size:14px; }
+  ul.lessons li + li { margin-top:6px; }
+  .case { color:var(--muted); }
+  .next { margin-top:32px; text-align:right; }
+  .btn { font:inherit; font-size:15px; font-weight:600; background:var(--accent); color:#fff; border:none; border-radius:10px; padding:10px 18px; cursor:pointer; }
+  :root[data-theme="dark"] .btn { color:#0B1514; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn { color:#0B1514; } }
+
+  /* conversations */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .tabs button { font:inherit; font-size:14px; text-align:left; border:1px solid var(--line); background:var(--card); color:var(--ink);
+    border-radius:10px; padding:8px 12px; cursor:pointer; flex:1 1 150px; }
+  .tabs button small { display:block; color:var(--muted); font-size:12px; }
+  .tabs button[aria-pressed="true"] { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+  .toolbar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; font-size:14px; color:var(--muted); margin-bottom:8px; }
+  .toolbar label { display:flex; gap:6px; align-items:center; cursor:pointer; }
+  .jump { display:flex; gap:6px; flex-wrap:wrap; }
+  .jump a { color:var(--accent); text-decoration:none; font-size:13px; border:1px solid var(--line); border-radius:999px; padding:2px 10px; background:var(--card); }
+  .turn { margin:28px 0 12px; padding:12px 14px; border-radius:10px; background:var(--accent-bg); }
+  .turn b { font-size:15px; }
+  .turn div { font-size:14px; color:var(--muted); }
+  .line { margin:10px 0; scroll-margin-top:130px; border-radius:10px; transition:background .6s; }
+  .line .meta { font-size:13px; color:var(--muted); display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
+  .line .meta .who { font-weight:600; color:var(--ink); }
+  .line .meta .time { font-variant-numeric:tabular-nums; color:var(--faint); }
+  .line p { margin:2px 0 0; }
+  .line.ask { padding:4px 2px; }
+  .line.ask p { color:var(--muted); font-style:italic; }
+  .line.answer { background:var(--card); border:1px solid var(--line); padding:10px 14px; }
+  .line.flash { background:var(--hl); }
+  .tag { display:inline-block; font-size:12px; border-radius:6px; padding:1px 7px; font-weight:600; white-space:nowrap; }
+  .tag.phone { background:var(--accent-bg); color:var(--accent); }
+  .chip { font:inherit; font-size:12px; color:var(--accent); background:none; border:none; padding:0; cursor:pointer; margin-top:4px; }
+  .notes { list-style:none; margin:8px 0 2px; padding:8px 0 0; border-top:1px dashed var(--line); font-size:14px; }
+  .notes li { display:grid; grid-template-columns:118px 1fr; gap:8px; padding:3px 0; }
+  .notes .kind { font-size:12px; color:var(--muted); padding-top:2px; }
+  .notes .used { font-size:12px; color:var(--ok); }
+  .notes .unused { font-size:12px; color:var(--faint); }
+  @media (max-width:560px) { .notes li { grid-template-columns:1fr; gap:0; } }
+  .suggested { font-size:13px; color:var(--muted); margin-top:4px; }
+
+  /* playbook */
+  .doc { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:26px 26px 30px; }
+  @media (max-width:560px) { .doc { padding:18px 16px 22px; } }
+  .doc h1 { font-family:var(--serif); font-size:26px; line-height:1.25; margin:0 0 10px; font-weight:600; }
+  .doc .note { color:var(--muted); font-style:italic; font-size:15px; }
+  .doc h3 { font-family:var(--serif); font-size:20px; font-weight:600; margin:30px 0 4px; }
+  .doc .intro { color:var(--muted); margin:0 0 8px; }
+  .claims { list-style:none; padding:0; margin:0; }
+  .claim { border-top:1px solid var(--line); padding:12px 0; }
+  .claim .text { cursor:pointer; }
+  .claim .text:hover { color:var(--accent); }
+  .claim .caveat { color:var(--muted); font-size:14px; margin-top:4px; }
+  .claim .caveat b { font-weight:600; }
+  .claim .src-toggle { font-size:12px; color:var(--accent); white-space:nowrap; }
+  .sources { margin:10px 0 0; padding:10px 12px; background:var(--bg); border-radius:8px; list-style:none; font-size:14px; }
+  .sources li { padding:6px 0; border-top:1px solid var(--line); }
+  .sources li:first-child { border-top:none; }
+  .sources .from { font-size:12px; color:var(--muted); }
+  .sources a { color:var(--accent); font-size:12px; text-decoration:none; margin-left:6px; white-space:nowrap; }
+  .score { margin-top:12px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 6px; border-top:1px solid var(--line); vertical-align:top; }
+  th { font-size:12px; color:var(--muted); font-weight:600; border-top:none; }
+  td.m { text-align:center; width:64px; }
+  @media (max-width:560px) { td.m, th.m { width:30px; padding:8px 2px; } th.m { font-size:10px; } h1 { font-size:17px; } }
+  .mark { font-weight:700; }
+  .mark.yes { color:var(--ok); } .mark.partial { color:var(--part); } .mark.no { color:var(--no); }
+  .persona-row td { background:var(--bg); font-weight:600; font-size:13px; }
+  .scroll { overflow-x:auto; }
+  ul.obs { padding-left:18px; } ul.obs li + li { margin-top:6px; }
+  footer { color:var(--faint); font-size:13px; margin-top:40px; }
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <div class="eyebrow" id="eyebrow">Simulated run</div>
+  <h1 id="title"></h1>
+  <nav class="steps" id="steps">
+    <button data-step="setup"><span class="n">1</span>Setup</button>
+    <button data-step="talk"><span class="n">2</span>Conversations</button>
+    <button data-step="doc"><span class="n">3</span>Playbook</button>
+  </nav>
+</div></header>
+
+<main class="wrap">
+  <section class="step" id="setup"></section>
+  <section class="step" id="talk"></section>
+  <section class="step" id="doc"></section>
+</main>
+
+<script id="data" type="application/json">/*__DATA__*/null</script>
+<script>
+(function () {
+  const D = JSON.parse(document.getElementById("data").textContent);
+  const P = D.personas;
+  const KIND = { case:"Case", what_to_do:"What to do", how_to_tell:"How to tell", why:"Why",
+                 what_you_need:"What you need", what_goes_wrong:"What goes wrong", open_question:"Open question" };
+  const groupLabel = Object.fromEntries(D.groups.map(g => [g.code, g.label]));
+  const lineById = {};
+  D.groups.forEach(g => g.lines.forEach(l => { lineById[l.id] = { ...l, group: g.code }; }));
+
+  // ---- tiny DOM helper
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+      else if (k === "class") el.className = v;
+      else el.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : String(kid));
+    return el;
+  }
+  const name = id => id ? id.charAt(0).toUpperCase() + id.slice(1) : "Someone";
+  const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  const pct = x => `${Math.round(x * 100)}%`;
+  const stripNum = s => s.replace(/^\s*\d+[.)]\s*/, "");
+  const usedLabel = u => u.map(x => x.startsWith("§") ? "section " + x.slice(1) : x).join(", ");
+
+  document.getElementById("title").textContent = D.event.title;
+  document.getElementById("eyebrow").textContent = `Simulated run · ${D.run}`;
+
+  // ================================================================ 1. setup
+  function renderSetup() {
+    const s = D.summary;
+    const sec = document.getElementById("setup");
+    const models = D.models ? [...new Set(Object.values(D.models).filter(Boolean))].map(m => m.replace(/^openrouter:/, "")).join(", ") : null;
+    const nPeople = D.groups.reduce((n, g) => n + g.members.length, 0);
+    sec.append(
+      h("h2", {}, "1. The setup"),
+      h("p", { class: "lead" },
+        `${nPeople} fictional experts in ${D.groups.length} groups interview each other for ${D.minutes} simulated minutes. ` +
+        "Language models play the people. The phone, the coach, the map and the playbook are the real system being tested."),
+      h("div", { class: "card" }, h("dl", { class: "kv" },
+        h("dt", {}, "Scenario"), h("dd", {}, D.event.scenario),
+        h("dt", {}, "Goal"), h("dd", {}, D.event.goal))),
+      h("h3", {}, "How a simulated session runs"),
+      h("div", { class: "row" },
+        h("ol", { class: "how" },
+          h("li", {}, `Each group splits the ${D.minutes} minutes evenly, so each member is interviewed once while the others take turns asking.`),
+          h("li", {}, `Before each question, the asker glances at the phone ${pct(D.sim.p_look)} of the time, and always at the start of a new interview. When they look, they open “More questions” ${pct(D.sim.p_more)} of the time. Using a suggestion is up to them.`),
+          h("li", {}, `About every ${D.event.coach_interval_s} simulated seconds, the coach reads each group's new lines without speaker names, as speech recognition would deliver them. It adds points to a shared map and refreshes the phone's suggestions.`),
+          h("li", {}, "Each expert has hidden lessons drawn from invented incidents. They reveal one when a question gives them an opening, and more detail when asked follow-ups."),
+          h("li", {}, "When listening ends, the playbook is drafted from the map and transcripts. A judge then checks each hidden lesson against the conversation, the map and the playbook.")),
+        h("div", { class: "phone", "aria-label": "Phone at the start" },
+          h("div", { class: "eyebrow" }, "Pick someone to ask, then"),
+          h("div", { class: "q" }, `“${D.event.opening[0]}”`),
+          h("div", { class: "more" }, "More questions"))),
+      h("h3", {}, "The groups"),
+      h("p", { class: "lead" }, "Personas and lessons are invented. The coach never sees the lessons; only the players and the judge do."),
+      h("div", { class: "stack" }, D.groups.map(g => h("div", { class: "card group-card" },
+        h("h4", {}, g.label),
+        g.members.map(m => {
+          const p = P[m];
+          return h("div", { class: "member" },
+            h("div", {}, h("span", { class: "name" }, name(m)), " ", h("span", { class: "angle" }, p.angle)),
+            h("div", { class: "case", style: "font-size:14px" }, `Speaks: ${p.style}`),
+            h("details", {}, h("summary", {}, `Hidden lessons (${p.lessons.length})`),
+              h("ul", { class: "lessons" }, p.lessons.map(l => h("li", {}, l.lesson, " ", h("span", { class: "case" }, `Case: ${l.case}`))))));
+        })))),
+      h("h3", {}, "This run"),
+      h("div", { class: "facts" },
+        fact(D.minutes + " min", "simulated session"),
+        fact(s.utterances, "spoken lines"),
+        fact(s.map_items, "map points"),
+        models && fact(models, "model, all roles", true),
+        D.cost && fact("$" + D.cost.toFixed(2), "model cost"),
+        fact(Math.round(s.wall_seconds / 60) + " min", "to run")),
+      nextBtn("talk", "Next: the conversations"));
+  }
+  function fact(big, small, wrap) {
+    return h("div", { class: "fact" }, h("b", { style: wrap ? "font-size:15px;word-break:break-word" : null }, big), h("span", {}, small));
+  }
+  function nextBtn(step, label) {
+    return h("div", { class: "next" }, h("button", { class: "btn", onclick: () => go(step) }, label + " →"));
+  }
+
+  // ================================================================ 2. talk
+  let currentGroup = D.groups[0].code;
+  let showAllNotes = false;
+
+  function notesList(ids) {
+    return h("ul", { class: "notes" }, ids.map(id => {
+      const it = D.items[id];
+      return h("li", {},
+        h("span", { class: "kind" }, KIND[it.kind] || it.kind),
+        h("span", {}, it.text, " ",
+          it.used.length ? h("span", { class: "used" }, `→ playbook ${usedLabel(it.used)}`) : h("span", { class: "unused" }, "not in playbook")));
+    }));
+  }
+
+  function lineEl(l) {
+    const kids = [];
+    kids.push(h("div", { class: "meta" },
+      h("span", { class: "who" }, name(l.speaker)),
+      l.role === "ask" ? "asks" : null,
+      h("span", { class: "time" }, mmss(l.t)),
+      l.pick ? h("span", { class: "tag phone" }, `Tapped on phone · ${l.pick.label}`) :
+        (l.phone && l.phone.used === "focused_question") ? h("span", { class: "tag phone" }, "Read from phone") : null));
+    kids.push(h("p", {}, l.text));
+    if (l.pick && l.pick.text.trim() !== l.text.trim()) kids.push(h("div", { class: "suggested" }, `Phone suggestion: “${l.pick.text}”`));
+    if (l.items.length) {
+      const list = notesList(l.items);
+      list.hidden = !showAllNotes;
+      const chip = h("button", { class: "chip", onclick: () => { list.hidden = !list.hidden; } },
+        `${l.items.length} map point${l.items.length > 1 ? "s" : ""}`);
+      kids.push(chip, list);
+    }
+    return h("div", { class: "line " + l.role, id: l.id }, kids);
+  }
+
+  function renderTalk() {
+    const sec = document.getElementById("talk");
+    sec.replaceChildren();
+    const g = D.groups.find(x => x.code === currentGroup);
+    sec.append(
+      h("h2", {}, "2. The conversations"),
+      h("p", { class: "lead" },
+        "Every line was spoken by a simulated participant. Names are shown here for reading; the coach got the lines unlabeled. " +
+        "Under a line, “map points” are what the coach wrote down from it, and whether each point reached the playbook."),
+      h("div", { class: "tabs", role: "group", "aria-label": "Groups" }, D.groups.map(x =>
+        h("button", { "aria-pressed": String(x.code === currentGroup), onclick: () => { currentGroup = x.code; go("talk"); } },
+          x.label, h("small", {}, x.members.map(name).join(", "))))));
+
+    const turns = [];
+    g.lines.forEach(l => { if (!turns.length || turns[turns.length - 1].expert !== l.expert) turns.push({ expert: l.expert, start: l.t, id: "turn-" + l.id }); });
+    const nItems = g.lines.reduce((n, l) => n + l.items.length, 0);
+    const nUsed = g.lines.reduce((n, l) => n + l.items.filter(id => D.items[id].used.length).length, 0);
+    const nPicks = g.lines.filter(l => l.pick).length;
+    sec.append(h("div", { class: "toolbar" },
+      h("span", {}, `${g.lines.length} lines · ${nItems} map points (${nUsed} in playbook) · ${nPicks} phone taps`),
+      h("label", {}, h("input", { type: "checkbox", checked: showAllNotes || null,
+        onchange: e => { showAllNotes = e.target.checked; sec.querySelectorAll(".notes").forEach(n => n.hidden = !showAllNotes); } }),
+        "Show all map points")));
+    sec.append(h("div", { class: "jump" }, turns.map(t => h("a", { href: "#" + t.id,
+      onclick: e => { e.preventDefault(); document.getElementById(t.id).scrollIntoView({ behavior: "smooth" }); } },
+      `${mmss(t.start)} ${name(t.expert)}`))));
+
+    let lastExpert = null;
+    for (const l of g.lines) {
+      if (l.expert !== lastExpert) {
+        lastExpert = l.expert;
+        const p = P[l.expert];
+        sec.append(h("div", { class: "turn", id: "turn-" + l.id },
+          h("b", {}, `Interviewing ${name(l.expert)}`), h("div", {}, `${mmss(l.t)} · ${p.angle}`)));
+      }
+      sec.append(lineEl(l));
+    }
+    sec.append(nextBtn("doc", "Next: the playbook"));
+  }
+
+  function showLine(id) {
+    const l = lineById[id];
+    if (!l) return;
+    currentGroup = l.group;
+    go("talk", true);
+    const el = document.getElementById(id);
+    el.scrollIntoView({ block: "center" });
+    el.classList.add("flash");
+    setTimeout(() => el.classList.remove("flash"), 1800);
+  }
+
+  // ================================================================ 3. doc
+  function sourcesList(ids) {
+    return h("ul", { class: "sources" }, ids.filter(id => D.items[id]).map(id => {
+      const it = D.items[id];
+      const u = it.utts[0] && lineById[it.utts[0]];
+      return h("li", {},
+        h("div", { class: "from" }, `${KIND[it.kind] || it.kind} · ${groupLabel[it.group] || it.group}` +
+          (u ? ` · ${name(u.speaker)} at ${mmss(u.t)}` : "")),
+        h("div", {}, it.text,
+          u ? h("a", { href: "#", onclick: e => { e.preventDefault(); showLine(u.id); } }, "See in conversation →") : null));
+    }));
+  }
+
+  function claimEl(c) {
+    const groups = new Set(c.item_ids.map(id => D.items[id] && D.items[id].group).filter(Boolean));
+    const src = sourcesList(c.item_ids);
+    src.hidden = true;
+    const toggle = () => { src.hidden = !src.hidden; };
+    return h("li", { class: "claim" },
+      h("div", { class: "text", onclick: toggle, title: "Show where this came from" }, c.text || c.summary, " ",
+        h("span", { class: "src-toggle" }, `${c.item_ids.length} source point${c.item_ids.length === 1 ? "" : "s"}, ${groups.size} group${groups.size === 1 ? "" : "s"}`)),
+      c.caveat ? h("div", { class: "caveat" }, h("b", {}, "Caveat: "), c.caveat) : null,
+      src);
+  }
+
+  function renderDoc() {
+    const sec = document.getElementById("doc");
+    const S = D.synthesis, J = D.judge, s = D.summary;
+    const nItems = Object.keys(D.items).length;
+    const unused = Object.values(D.items).filter(i => !i.used.length);
+    sec.append(
+      h("h2", {}, "3. The drafted playbook"),
+      h("p", { class: "lead" },
+        `Drafted once listening ended, from ${nItems} map points and the transcripts. Click any point to see the map points behind it, then jump to the line where it was said.`));
+    if (!S) { sec.append(h("p", {}, "No playbook was drafted in this run.")); return; }
+    const doc = h("article", { class: "doc" },
+      h("h1", {}, S.title),
+      h("p", { class: "note" }, S.structure_note));
+    S.sections.forEach((x, i) => doc.append(
+      h("h3", {}, `${i + 1}. ${stripNum(x.title)}`),
+      x.intro ? h("p", { class: "intro" }, x.intro) : null,
+      h("ul", { class: "claims" }, x.claims.map(claimEl))));
+    if (S.disagreements && S.disagreements.length) doc.append(h("h3", {}, "Where people disagreed"),
+      h("ul", { class: "claims" }, S.disagreements.map(claimEl)));
+    if (S.open_questions && S.open_questions.length) doc.append(h("h3", {}, "Open questions for the room"),
+      h("ul", { class: "claims" }, S.open_questions.map(claimEl)));
+    sec.append(doc);
+
+    sec.append(h("h3", {}, "What didn't make it"),
+      h("p", { class: "lead", style: "margin-bottom:8px" },
+        `${nItems - unused.length} of ${nItems} map points are used in the playbook. The other ${unused.length} stay in the concept map as candidates for the room to add.`),
+      h("details", {}, h("summary", {}, `Show the ${unused.length} unused points`), sourcesList(unused.map(i => i.id))));
+
+    // scoring
+    const byPersona = {};
+    J.lessons.forEach(v => { const pid = v.lesson_id.replace(/-\d+$/, ""); (byPersona[pid] = byPersona[pid] || []).push(v); });
+    const lessonText = {};
+    Object.values(P).forEach(p => p.lessons.forEach(l => { lessonText[l.id] = l.lesson; }));
+    const mark = v => h("span", { class: "mark " + v, title: v }, v === "yes" ? "✓" : v === "partial" ? "½" : "✗");
+    sec.append(
+      h("h3", {}, "How the judge scored it"),
+      h("p", { class: "lead", style: "margin-bottom:12px" },
+        "The judge compared each hidden lesson with what was said, what the coach mapped, and what the playbook kept."),
+      h("div", { class: "facts" },
+        fact(pct(s.elicited), "of lessons said aloud"),
+        fact(pct(s.captured_in_map), "captured in the map"),
+        fact(pct(s.in_playbook), `in the playbook (${pct(s.in_playbook_incl_partial)} with partial)`),
+        fact(s.weak_claims, "unsupported playbook claims")),
+      h("div", { class: "card score scroll" }, h("table", {},
+        h("thead", {}, h("tr", {}, h("th", {}, "Lesson"), h("th", { class: "m" }, "Said"), h("th", { class: "m" }, "Map"), h("th", { class: "m" }, "Playbook"))),
+        h("tbody", {}, Object.entries(byPersona).flatMap(([pid, vs]) => [
+          h("tr", { class: "persona-row" }, h("td", { colspan: "4" }, `${name(pid)} · ${P[pid] ? P[pid].angle : ""}`)),
+          ...vs.map(v => h("tr", {},
+            h("td", {}, lessonText[v.lesson_id] || v.lesson_id, h("div", { class: "case", style: "font-size:13px;margin-top:2px" }, v.note)),
+            h("td", { class: "m" }, mark(v.in_transcript)), h("td", { class: "m" }, mark(v.in_map)), h("td", { class: "m" }, mark(v.in_playbook))))])))),
+      J.observations && J.observations.length ? h("div", {}, h("h3", {}, "Judge's observations"),
+        h("ul", { class: "obs" }, J.observations.map(o => h("li", {}, o)))) : null,
+      h("footer", {}, `Generated from runs/${D.run}. Personas, incidents and lessons are fictional.`));
+  }
+
+  // ================================================================ routing
+  const rendered = {};
+  function go(step, keepScroll) {
+    if (step === "talk") { renderTalk(); rendered.talk = true; }
+    else if (!rendered[step]) { (step === "setup" ? renderSetup : renderDoc)(); rendered[step] = true; }
+    document.querySelectorAll("section.step").forEach(s => s.classList.toggle("on", s.id === step));
+    document.querySelectorAll("#steps button").forEach(b => b.setAttribute("aria-current", String(b.dataset.step === step)));
+    const hash = step === "talk" ? `#talk/${currentGroup}` : `#${step}`;
+    if (location.hash !== hash) history.replaceState(null, "", hash);
+    if (!keepScroll) window.scrollTo(0, 0);
+  }
+  document.querySelectorAll("#steps button").forEach(b => b.addEventListener("click", () => go(b.dataset.step)));
+  const [step, grp] = location.hash.slice(1).split("/");
+  if (grp && D.groups.some(g => g.code === grp)) currentGroup = grp;
+  go(["setup", "talk", "doc"].includes(step) ? step : "setup");
+})();
+</script>
+</body>
+</html>

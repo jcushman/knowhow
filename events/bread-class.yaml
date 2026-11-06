@@ -1,0 +1,47 @@
+# Example event config. The scenario is invented and low-stakes; copy this
+# file and replace the scenario, goal, groups and vocabulary for a real event.
+title: Bread workshop (example)
+scenario: >-
+  A community kitchen is starting a free weekly bread class for beginners
+  next month. Volunteer teachers need a short guide they can rely on.
+goal: >-
+  Learn what separates a reliable loaf from a lucky one, and what to watch
+  for when teaching beginners.
+minutes: 30
+groups:
+  - {code: A-2291, label: Group A, size: 3}
+  - {code: B-5530, label: Group B, size: 3}
+  - {code: C-4817, label: Group C, size: 2}
+opening_questions:
+  - >-
+    Thinking about teaching this class, which parts would you most want to
+    weigh in on from your own baking?
+  - Can you tell me about a time that came up? Walk me through it from the start.
+fallback_questions:
+  - What went wrong that surprised you?
+  - How did you know? What did you notice?
+  - What did you check before you trusted the result?
+  - Who or what did you need that you didn't have?
+  - When would that advice be wrong?
+  - What do people new to this usually get wrong?
+  - With only one class, what would you teach, and what would you skip?
+  - What would you tell someone starting tomorrow that isn't written down anywhere?
+closing_question: What didn't I ask that I should have?
+lenses:
+  - ingredients and measuring
+  - fermentation and timing
+  - shaping
+  - baking
+  - teaching beginners
+  - scheduling around a class
+vocabulary:
+  [levain, starter, autolyse, banneton, baker's percentage, psyllium, retard, Dutch oven, bulk fermentation]
+documents: []
+group_hints: {}
+coach_interval_s: 60
+models:
+  coach: claude-opus-5-5
+  synth: claude-opus-5-5
+  coach_effort: low
+  synth_effort: high
+  fallbacks: true

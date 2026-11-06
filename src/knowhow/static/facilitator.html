@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knowhow facilitator</title>
+<style>
+  :root { --bg:#F5F6F4; --ink:#1B1F23; --muted:#5A6169; --line:#DADDD8; --teal:#0F6E6E; --warn:#7A3A0E; --warn-bg:#FBEFE6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system, system-ui, sans-serif; padding:20px 24px; }
+  .wrap { max-width:1240px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
+  h1 { font-size:20px; margin:0; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; }
+  .box { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+  .box.warn { background:var(--warn-bg); }
+  .muted { color:var(--muted); font-size:13px; }
+  .q { font-family:Georgia, serif; font-size:15px; }
+  textarea { width:100%; min-height:110px; font:inherit; font-size:14px; border:1px solid var(--line); border-radius:8px; padding:10px; }
+  button { font:inherit; font-size:14px; height:40px; padding:0 14px; border-radius:8px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+  button.primary { background:var(--teal); color:#fff; border:none; font-weight:600; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { text-align:left; padding:6px; border-top:1px solid var(--line); vertical-align:top; }
+  .sys { display:flex; gap:10px 24px; flex-wrap:wrap; font-size:14px; }
+  .dot { width:9px; height:9px; border-radius:5px; display:inline-block; flex:none; margin-top:5px; }
+  .ok { background:#1E7A46; } .warn { background:#C77700; } .bad { background:#B42318; } .idle { background:#A9AEB3; }
+  .head { display:flex; gap:8px; align-items:flex-start; font-weight:600; }
+  .head.ok, .head.idle { background:none; } .head.bad { background:none; color:#B42318; } .head.warn { background:none; color:#8A5300; }
+  .box.state-bad { border-color:#E7A39C; } .box.state-warn { border-color:#E8C48C; }
+  .stages { display:flex; flex-direction:column; gap:3px; font-size:13px; }
+  .stage { display:grid; grid-template-columns:12px 92px 1fr; gap:6px; align-items:start; }
+  .stage .dot { width:7px; height:7px; margin-top:6px; }
+  .stage .n { color:var(--muted); }
+  .spark { display:flex; align-items:flex-end; gap:2px; height:26px; }
+  .spark i { flex:1; background:#9CC9C7; border-radius:2px 2px 0 0; min-height:1px; }
+  .spark-l { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row" style="justify-content:space-between">
+    <h1 id="title">Facilitator</h1>
+    <div class="row">
+      <button class="primary" id="close">End listening and draft the playbook</button>
+    </div>
+  </div>
+  <div class="box"><div class="sys" id="sys"></div></div>
+  <div class="grid" id="groups"></div>
+  <div class="box">
+    <strong>Message to every phone</strong>
+    <div class="muted">Markdown: a heading line starting with #, **bold**, _italic_, [link text](https://…). Empty clears it and phones return to questions.</div>
+    <textarea id="msg"></textarea>
+    <div class="row"><button class="primary" id="send">Show on phones</button><button id="clear">Clear</button></div>
+  </div>
+  <div class="box">
+    <strong>Latest map items</strong>
+    <table><thead><tr><th>Id</th><th>Kind</th><th>Text</th><th></th></tr></thead><tbody id="items"></tbody></table>
+  </div>
+  <details class="box"><summary><strong>Model usage</strong></summary><pre class="muted" id="usage"></pre></details>
+</div>
+<script>
+(function () {
+  const key = new URLSearchParams(location.search).get("key") || "";
+  const q = (p) => `/api/admin/${p}?key=${encodeURIComponent(key)}`;
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  async function post(p, body) { await fetch(q(p), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) }); refresh(); }
+
+  async function refresh() {
+    const r = await fetch(q("overview"), { cache: "no-store" });
+    if (!r.ok) return;
+    const d = await r.json();
+    const H = d.health;
+    const a = H.asr;
+    const asrState = a.kind === "none" ? "warn" : a.error ? "bad" : !a.ready ? "warn" : a.queue > 3 || (a.avg_delay || 0) > 20 ? "warn" : "ok";
+    const asrText = a.kind === "none" ? "off (typed text only)" : a.error ? a.error : !a.ready ? "loading model…" :
+      `ready · ${a.queue} segment${a.queue === 1 ? "" : "s"} waiting` + (a.avg_delay !== null ? ` · avg delay ${a.avg_delay} s` : "");
+    const cu = Object.values(d.usage.coach || {})[0] || {};
+    const coachText = esc(H.coach_model || "") + (cu.calls ? ` · ${cu.calls} calls` : "") + (cu.cost_usd ? ` · $${cu.cost_usd.toFixed(2)}` : "");
+    document.getElementById("sys").innerHTML =
+      `<span class="head" style="font-weight:400"><span class="dot ${asrState}"></span><span><b>Speech recognition</b> ${esc(a.kind)}: ${esc(asrText)}</span></span>` +
+      `<span class="head" style="font-weight:400"><span class="dot ${Object.values(H.groups).some((h) => h.stages[3].state === "bad") ? "bad" : "ok"}"></span><span><b>Coach</b> ${coachText}</span></span>`;
+
+    document.getElementById("groups").innerHTML = d.groups.map((g) => {
+      const h = H.groups[g.code];
+      const max = Math.max(20, ...h.words_per_min);
+      const spark = h.words_per_min.map((n) => `<i style="height:${Math.round((n / max) * 100)}%" title="${n} words"></i>`).join("");
+      return `<div class="box state-${h.state}">
+        <div class="row" style="justify-content:space-between"><strong>${esc(g.label)} <span class="muted">${esc(g.code)}</span></strong>
+          <span class="muted">${g.lines} lines · ${g.items} points · ${g.picks} picked</span></div>
+        <div class="head ${h.state}"><span class="dot ${h.state}"></span><span>${esc(h.headline)}</span></div>
+        <div class="stages">${h.stages.map((s) => `<div class="stage"><span class="dot ${s.state}"></span><span class="n">${s.name}</span><span>${esc(s.detail)}</span></div>`).join("")}</div>
+        <div><div class="spark">${spark}</div><div class="spark-l"><span>words per minute, last 10 min</span><span>now</span></div></div>
+        <div class="muted">On the phones now:</div>
+        <div class="q">“${esc(g.current)}”</div>
+        ${g.note ? `<div class="muted">${esc(g.note)}</div>` : ""}
+      </div>`;
+    }).join("");
+    document.getElementById("items").innerHTML = d.recent_items.slice().reverse().map((i) =>
+      `<tr style="${i.struck ? "text-decoration:line-through;color:#767676" : ""}"><td>${esc(i.id)}</td><td>${esc(i.kind)}</td><td>${esc(i.text)}</td>
+       <td>${i.struck ? "" : `<button data-strike="${esc(i.id)}">Strike</button>`}</td></tr>`).join("");
+    document.querySelectorAll("[data-strike]").forEach((b) => b.onclick = () => post("strike", { item_id: b.dataset.strike }));
+    document.getElementById("usage").textContent = JSON.stringify(d.usage, null, 1);
+    document.getElementById("close").disabled = d.closed;
+    document.getElementById("close").textContent = d.closed ? "Listening ended; drafting runs in the background" : "End listening and draft the playbook";
+  }
+  document.getElementById("send").onclick = () => post("message", { markdown: document.getElementById("msg").value });
+  document.getElementById("clear").onclick = () => { document.getElementById("msg").value = ""; post("message", { markdown: "" }); };
+  document.getElementById("close").onclick = () => { if (confirm("Stop listening on every phone and start drafting?")) post("close"); };
+  refresh(); setInterval(refresh, 4000);
+})();
+</script>
+</body>
+</html>
