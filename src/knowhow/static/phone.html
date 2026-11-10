@@ -40,6 +40,7 @@
   .msg p { margin: 0 0 14px; }
   .msg a.btn { display:flex; align-items:center; justify-content:center; height:56px; background:var(--teal); color:#fff; text-decoration:none; font-weight:600; margin:8px 0 14px; }
   h1.big { font-family: Georgia, serif; font-size:34px; margin:0; }
+  .paused-note { background:var(--teal-bg); border-radius:14px; padding:14px 16px; margin-top:12px; color:var(--teal-dk); font-weight:600; line-height:1.4; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -69,6 +70,7 @@
     <p>The other phone stopped listening. Everything up to now is saved.</p>
     <button class="primary" id="takeover">Listen on this phone</button>
   </div>
+  <div class="paused-note" id="paused-note" hidden>Paused. Nothing said now is kept. Tap Resume when you're ready to go on the record again.</div>
   <div class="center" id="focus">
     <div class="eyebrow" id="eyebrow">When there's a pause</div>
     <div class="q" id="qtext"></div>
@@ -190,6 +192,7 @@
     if (state.mode === "message") { $("msg").innerHTML = md(state.message || ""); return; }
 
     $("dropped").hidden = !state.listener_dropped || listeningHere;
+    $("paused-note").hidden = !state.paused;
     $("eyebrow").textContent = state.eyebrow;
     $("qtext").textContent = "“" + state.question.text + "”";
     $("qwhy").textContent = state.note || state.question.why || "";

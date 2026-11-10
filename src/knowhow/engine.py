@@ -8,15 +8,17 @@ passes its own simulated clock.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import threading
+import time
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from .coach import run_coach
 from .config import EventConfig
-from .llm import LLM
+from .llm import LLM, TRANSIENT_ERRORS
 from .models import (
     GroupState,
     Link,
@@ -32,6 +34,8 @@ from .synth import account, render_map, render_playbook, run_synthesis
 LISTENER_STALE_S = 40.0  # phones send an audio segment every ~15 s
 CONTEXT_LINES = 30  # earlier lines sent to the coach for context
 MIN_NEW_CHARS = 200  # don't wake the coach for a sentence or two
+SAVE_MIN_INTERVAL_S = 2.0  # new lines are saved at most this often; flush() catches the rest
+NEW_REF = re.compile(r"\d+")
 
 
 class SessionState(BaseModel):
@@ -42,6 +46,8 @@ class SessionState(BaseModel):
     closed: bool = False
     synthesis: Synthesis | None = None
     started_at: float = 0.0  # wall-clock epoch for live sessions; 0 in simulations
+    dropped: dict[str, dict[str, int]] = Field(default_factory=dict)  # group -> reason -> lines refused
+    final_pass_failures: list[str] = Field(default_factory=list)
 
 
 def initial_questions(cfg: EventConfig) -> QuestionSet:
@@ -62,6 +68,9 @@ class Session:
         self.data_dir = Path(data_dir)
         self.lock = threading.RLock()
         self._coaching: set[str] = set()
+        self._idle = threading.Condition(self.lock)  # notified when a coach pass ends
+        self._dirty = False
+        self._last_save = 0.0
         state_file = self.data_dir / "state.json"
         if state_file.exists():
             self.state = SessionState.model_validate_json(state_file.read_text())
@@ -74,17 +83,38 @@ class Session:
 
     # ------------------------------------------------------------------ input
 
+    def refusal(self, code: str) -> str | None:
+        """Why a line for this group would be refused right now, or None."""
+        with self.lock:
+            if self.state.closed:
+                return "closed"
+            if self.state.groups[code].paused:
+                return "paused"
+            return None
+
     def ingest(self, code: str, text: str, t: float, speaker: str | None = None, source: str = "asr") -> Utterance | None:
+        """Store one line. Returns None for an empty or refused line; refused
+        lines are counted in state.dropped, and callers use refusal() to tell
+        the sender."""
         text = text.strip()
         if not text:
             return None
         with self.lock:
-            g = self.state.groups[code]
-            if self.state.closed or g.paused:
+            reason = self.refusal(code)
+            if reason:
+                self.note_dropped(code, reason)
                 return None
             u = Utterance(id=f"u{len(self.state.utterances) + 1}", group=code, t=t, text=text, speaker=speaker, source=source)
             self.state.utterances.append(u)
+            self._dirty = True
+            self.flush(SAVE_MIN_INTERVAL_S)
             return u
+
+    def note_dropped(self, code: str, reason: str) -> None:
+        with self.lock:
+            by = self.state.dropped.setdefault(code, {})
+            by[reason] = by.get(reason, 0) + 1
+            self._dirty = True
 
     def note_audio(self, code: str, device: str, t: float) -> None:
         with self.lock:
@@ -102,6 +132,7 @@ class Session:
     def set_paused(self, code: str, paused: bool) -> None:
         with self.lock:
             self.state.groups[code].paused = paused
+            self.save()
 
     def pick(self, code: str, slot: str, t: float) -> None:
         """A group tapped a question in the More list. slot: next | offshoot:N | redirect | current."""
@@ -121,6 +152,8 @@ class Session:
             g.picks.append({"t": t, "slot": slot, "text": chosen.text})
             g.questions = q.model_copy(update={"current": chosen})
             g.note = ""
+            self._remember_current(g)
+            self._dirty = True
 
     def strike(self, item_id: str) -> None:
         with self.lock:
@@ -129,6 +162,7 @@ class Session:
     def set_message(self, markdown: str | None, t: float) -> None:
         with self.lock:
             self.state.message = PhoneMessage(markdown=markdown, t=t) if markdown else None
+            self.save()
 
     # ------------------------------------------------------------------ coach
 
@@ -146,11 +180,15 @@ class Session:
             chars = sum(len(u.text) for u in new)
             return chars >= MIN_NEW_CHARS and now - g.last_coach_t >= self.cfg.coach_interval_s
 
-    def coach(self, code: str, now: float) -> None:
-        """One coach pass for a group. The LLM call runs outside the lock."""
+    def coach(self, code: str, now: float) -> dict | None:
+        """One coach pass for a group. The LLM call runs outside the lock.
+
+        State changes only after the whole update has been checked, so a
+        failed pass leaves the group's lines pending for the next one.
+        Returns counts for the coach log, or None if nothing ran."""
         with self.lock:
             if code in self._coaching:
-                return
+                return None
             self._coaching.add(code)
             g = self.state.groups[code]
             group_lines = [u for u in self.state.utterances if u.group == code]
@@ -162,7 +200,7 @@ class Session:
             size = self.cfg.group(code).size
         try:
             if not new:
-                return
+                return None
             upd = run_coach(
                 self.coach_llm,
                 self.cfg,
@@ -177,35 +215,36 @@ class Session:
         finally:
             with self.lock:
                 self._coaching.discard(code)
+                self._idle.notify_all()
         with self.lock:
             g = self.state.groups[code]
-            g.coached_through += len(new)
-            g.last_coach_t = now
-            # Assign ids, resolving 'new:N' links to the ids just assigned.
+            # Build every item first; nothing below the loop can fail halfway.
             base = len(self.state.items)
             new_ids = [f"{code.split('-')[0]}{base + k + 1}" for k in range(len(upd.new_items))]
             valid_utt = {u.id for u in new} | {u.id for u in context}
+            built = []
             for k, ni in enumerate(upd.new_items):
                 links = []
                 for l in ni.links:
-                    target = l.target_id
-                    if target.startswith("new:"):
-                        idx = int(target.split(":", 1)[1])
-                        if not 0 <= idx < len(new_ids):
-                            continue
-                        target = new_ids[idx]
-                    elif target not in self.state.items:
-                        continue
+                    target = self._link_target(l.target_id, new_ids)
+                    if target is None or target == new_ids[k]:
+                        continue  # unknown id or a link to itself
                     links.append(Link(target_id=target, relation=l.relation))
-                self.state.items[new_ids[k]] = MapItem(
-                    id=new_ids[k],
-                    group=code,
-                    text=ni.text,
-                    kind=ni.kind,
-                    specific=ni.specific,
-                    links=links,
-                    utterance_ids=[i for i in ni.utterance_ids if i in valid_utt],
+                built.append(
+                    MapItem(
+                        id=new_ids[k],
+                        group=code,
+                        text=ni.text,
+                        kind=ni.kind,
+                        specific=ni.specific,
+                        links=links,
+                        utterance_ids=[i for i in ni.utterance_ids if i in valid_utt],
+                    )
                 )
+            for item in built:
+                self.state.items[item.id] = item
+            g.coached_through += len(new)
+            g.last_coach_t = now
             qs = upd.questions
             if not upd.replace_current:
                 # The current question changes only when the group picks one or
@@ -213,9 +252,75 @@ class Session:
                 qs = qs.model_copy(update={"current": g.questions.current})
             g.questions = qs
             g.note = upd.note
+            self._remember_current(g)
             if upd.new_turn:
                 g.turn_started_t = now
             self.save()
+            return {"lines": len(new), "chars": sum(len(u.text) for u in new), "items": len(built)}
+
+    def _link_target(self, target: str, new_ids: list[str]) -> str | None:
+        """Resolve a link target: 'new:N' (models also write 'new:N3' or
+        'new:#1') names an item from this update; anything else must be an
+        existing item id."""
+        if target.startswith("new:"):
+            m = NEW_REF.search(target)
+            idx = int(m.group()) if m else -1
+            return new_ids[idx] if 0 <= idx < len(new_ids) else None
+        return target if target in self.state.items else None
+
+    @staticmethod
+    def _remember_current(g: GroupState) -> None:
+        text = g.questions.current.text
+        if text not in g.asked:
+            g.asked.append(text)
+
+    def final_pass(self, now: float, log=None) -> list[str]:
+        """After close: one coach pass per group over whatever is still
+        pending, ignoring the 200-character threshold, so the end of each
+        conversation reaches the map. Waits for any pass already running.
+        Returns (and records) the groups whose lines could not be coached."""
+        failed = []
+        for code in list(self.state.groups):
+            error = None
+            for _ in range(3):  # a regular pass may start between our wait and our call
+                with self.lock:
+                    while code in self._coaching:
+                        self._idle.wait()
+                    if not self.pending(code):
+                        break
+                started = time.monotonic()
+                try:
+                    info = self.coach(code, now)
+                except TRANSIENT_ERRORS as e:
+                    error = f"{type(e).__name__}: {e}"
+                    self.log_pass(code, now, started, None, error, final=True)
+                    break
+                if info is not None:
+                    self.log_pass(code, now, started, info, None, final=True)
+            left = len(self.pending(code))
+            if left:
+                failed.append(f"{code}: {left} lines not coached" + (f" ({error})" if error else ""))
+        with self.lock:
+            self.state.final_pass_failures = failed
+            self.save()
+        return failed
+
+    def log_pass(self, code: str, now: float, started: float, info: dict | None, error: str | None, final: bool = False) -> None:
+        """Append one line per coach pass to coach-log.jsonl in the session
+        directory: counts and timing only, no transcript text. Purge deletes it."""
+        rec = {
+            "wall": round(time.time(), 1),
+            "t": round(now, 1),
+            "group": code,
+            "seconds": round(time.monotonic() - started, 2),
+            "final": final,
+            **(info or {}),
+            "error": error,
+        }
+        with self.lock:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            with (self.data_dir / "coach-log.jsonl").open("a") as f:
+                f.write(json.dumps(rec) + "\n")
 
     # ------------------------------------------------------------------ views
 
@@ -313,8 +418,18 @@ class Session:
 
     # ------------------------------------------------------------ persistence
 
+    def flush(self, min_interval: float = 0.0) -> None:
+        """Save if anything changed and at least min_interval seconds have
+        passed since the last save. The server calls this every few seconds,
+        so a crash loses at most a few seconds of lines."""
+        with self.lock:
+            if self._dirty and time.monotonic() - self._last_save >= min_interval:
+                self.save()
+
     def save(self) -> None:
         with self.lock:
+            self._dirty = False
+            self._last_save = time.monotonic()
             self.data_dir.mkdir(parents=True, exist_ok=True)
             tmp = self.data_dir / "state.json.tmp"
             tmp.write_text(self.state.model_dump_json(indent=1))

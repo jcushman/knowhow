@@ -19,7 +19,7 @@ import yaml
 
 from ..config import EventConfig
 from ..engine import Session
-from ..llm import LLM, LLMError
+from ..llm import LLM, TRANSIENT_ERRORS
 from .judge import judge
 from .players import Persona, SimConfig, asker_turn, expert_turn
 from .walkthrough import write_walkthrough
@@ -109,11 +109,16 @@ def step_group(
 def coach_or_log(session: Session, gr: "GroupRun", failures: list[str], log) -> None:
     """A failed coach call leaves the group's lines pending for the next pass,
     as it would in a live session, so the run continues."""
+    started = time.monotonic()
     try:
-        session.coach(gr.code, gr.clock)
-    except LLMError as e:
+        info = session.coach(gr.code, gr.clock)
+    except TRANSIENT_ERRORS as e:
         failures.append(f"{gr.code}@{gr.clock / 60:.1f}m: {e}")
         log(f"coach failed for {gr.code}: {str(e)[:300]}")
+        session.log_pass(gr.code, gr.clock, started, None, f"{type(e).__name__}: {e}")
+        return
+    if info is not None:
+        session.log_pass(gr.code, gr.clock, started, info, None)
 
 
 def run_sim(
@@ -162,10 +167,10 @@ def run_sim(
                 + f" items={len(session.state.items)}"
             )
     # Final coach pass so the tail of each conversation reaches the map.
-    for gr in runs:
-        if session.pending(gr.code):
-            coach_or_log(session, gr, coach_failures, log)
     session.close()
+    for failure in session.final_pass(max(gr.clock for gr in runs)):
+        coach_failures.append(f"final pass {failure}")
+        log(f"final pass: {failure}")
     log("synthesizing…")
     paths = session.synthesize()
     playbook = paths["playbook"].read_text()

@@ -44,6 +44,8 @@ from what was said; they are the most valuable suggestions.
 their share of time, suggest summing up the lesson and switching to the \
 next person with the opening question. Otherwise suggest saying the lesson \
 back ("So the lesson is...?") or one of the fallback questions.
+- Never offer a question listed in <already_asked>, or a close \
+paraphrase of one, except keeping the current question unchanged.
 - Phrase every question as the interviewer would say it aloud to the \
 expert: second person, plain, under 25 words. why is at most 8 words, or \
 empty.
@@ -112,6 +114,9 @@ next_in_sequence: {q.next_in_sequence.text}
 offshoots: {" | ".join(o.text for o in q.offshoots) or "(none)"}
 redirect: {q.redirect.text}
 </phone_now>
+<already_asked>
+{chr(10).join(group.asked) or "(none)"}
+</already_asked>
 <earlier_lines>
 {_fmt_lines(context)}
 </earlier_lines>

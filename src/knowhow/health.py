@@ -124,7 +124,8 @@ class Health:
                 h = self.g(code)
                 pending_chars = sum(len(u.text) for u in session.pending(code))
                 n_items = sum(1 for i in session.state.items.values() if i.group == code and not i.struck)
-                groups[code] = self._group(h, gs, now, pending_chars, n_items, session.state.closed)
+                dropped = sum(session.state.dropped.get(code, {}).values())
+                groups[code] = self._group(h, gs, now, pending_chars, n_items, session.state.closed, dropped)
             delays = [d for h in self.groups.values() for d in h.asr_delays]
             return {
                 "groups": groups,
@@ -138,7 +139,7 @@ class Health:
                 "coach_model": self.coach_model,
             }
 
-    def _group(self, h: GroupHealth, gs, now: float, pending_chars: int, n_items: int, closed: bool) -> dict:
+    def _group(self, h: GroupHealth, gs, now: float, pending_chars: int, n_items: int, closed: bool, dropped: int = 0) -> dict:
         while h.words and now - h.words[0][0] > SPARK_MINUTES * 60:
             h.words.popleft()
         while h.segment_times and now - h.segment_times[0] > SPARK_MINUTES * 60:
@@ -172,14 +173,15 @@ class Health:
         else:
             phone = (OK, f"One phone listening · {phones}")
 
+        refused = f" · {dropped} refused while paused or closed" if dropped else ""
         if closed or gs.paused:
-            audio = (IDLE, f"{h.segments} segments received")
+            audio = (IDLE, f"{h.segments} segments received{refused}")
         elif audio_age is None:
             audio = (IDLE, "No audio yet")
         elif audio_age > AUDIO_STALE_S:
             audio = (BAD, f"No audio for {int(audio_age)} s")
         else:
-            audio = (OK, f"Last segment {ago(h.last_segment_t)} · {h.segments} received")
+            audio = (OK, f"Last segment {ago(h.last_segment_t)} · {h.segments} received{refused}")
 
         if self.asr_kind == "none":
             asr = (IDLE, "Off (--asr none); only typed text arrives")

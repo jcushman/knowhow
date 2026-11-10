@@ -19,7 +19,9 @@ Speech recognition with several groups in one room has not been tested. See
    (phones allow microphone access only over HTTPS).
 2. Each group opens its join link. The first phone to tap Start listens; other
    phones show the same question, and any can take over if the listener stops.
-   Pause stops capture.
+   Pause stops capture: lines that arrive while a group is paused, or after
+   the session closes, are refused with HTTP 409 and counted on the
+   facilitator page, not stored.
 3. Phones upload 15-second audio segments. The laptop transcribes each one
    and deletes the audio. Transcripts carry no speaker names.
 4. About once a minute per group, the coach reads the new lines, adds map
@@ -36,17 +38,24 @@ Speech recognition with several groups in one room has not been tested. See
 
    From the same page the facilitator sends a message to every phone and ends
    listening.
-6. Ending listening drafts the playbook. Three files land in the session's
-   `output/` directory:
+6. Ending listening gives every group one last coach pass over whatever it
+   hasn't processed yet, then drafts the playbook. A group whose last lines
+   could not be coached is listed in `final_pass_failures` in `state.json`.
+   Three files land in the session's `output/` directory:
    - `playbook.md`;
    - `concept-map.md`, which lists every point and where it went;
    - `accounting.json`.
-7. After the room signs off, `knowhow purge` deletes transcripts and map state
-   and keeps `output/`.
+7. After the room signs off, `knowhow purge` deletes transcripts, map state
+   and the coach log, and keeps `output/`.
+
+State is saved to `state.json` within a few seconds of each new line, so a
+server restart loses at most a few seconds. Every coach pass appends a line
+to `coach-log.jsonl` in the session directory (timing, line and item counts,
+any error; no transcript text).
 
 ## Quick start
 
-Requires Python 3.14 and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.13 or later and [uv](https://docs.astral.sh/uv/).
 [just](https://just.systems/) runs the common tasks.
 
 ```bash
@@ -88,6 +97,16 @@ uv run knowhow serve events/my-event.yaml --data sessions/my-event --public-url 
 The server prints the facilitator URL with its key and one join link per
 group. The speech model (`whisper-large-v3-turbo`, downloaded on first use)
 loads at startup; the facilitator page says when it is ready.
+
+Print one handout per table with the join code, a QR code for the join
+link, how the session runs and what happens to what people say:
+
+```bash
+uv run knowhow handout events/my-event.yaml --public-url https://<tunnel-host> --out handout.html
+```
+
+Open `handout.html` in a browser and print it. Without `--public-url` the QR
+codes point to a placeholder address and each page says so.
 
 Re-draft from a saved session with `knowhow draft EVENT --data DIR`. Delete
 everything but `output/` with `knowhow purge --data DIR`.
@@ -147,6 +166,16 @@ Model names come from the event config's `models` block or from `--model`.
   (`ANTHROPIC_API_KEY` or an `ant auth login` profile).
 - A name of the form `openrouter:<slug>` uses OpenRouter with
   `OPENROUTER_API_KEY`.
+- A name of the form `local:<model>` uses any server with an OpenAI-compatible
+  chat completions API and strict JSON-schema output, such as vLLM. Set its
+  base URL with `--model-base-url` or `KNOWHOW_MODEL_BASE_URL`, an optional
+  key with `KNOWHOW_MODEL_API_KEY`, and extra request fields as JSON in
+  `KNOWHOW_MODEL_EXTRA_BODY` (for Qwen models on vLLM,
+  `{"chat_template_kwargs": {"enable_thinking": false}}`).
+
+In simulations with Qwen3.6-35B-A3B as the coach, coach passes took a median
+of about 1–3 minutes, against about 5 seconds with the hosted models tried;
+see [the research note](docs/research/2026-11-10-small-model-runs.md).
 
 Coach and synthesis calls send transcript text to the configured provider.
 Audio stays on the laptop.
@@ -173,6 +202,7 @@ Audio stays on the laptop.
 | `src/knowhow/synth.py` | Playbook drafting, rendering and accounting of every map item |
 | `src/knowhow/server.py`, `static/` | Phone, facilitator and join pages and their APIs |
 | `src/knowhow/health.py` | Per-group pipeline status for the facilitator page |
+| `src/knowhow/handout.py` | Printable table handouts |
 | `src/knowhow/asr.py` | Speech recognition backends |
 | `src/knowhow/llm.py` | Model clients (Anthropic SDK, OpenRouter) |
 | `src/knowhow/sim/` | Simulated players, runner, judge, offline fake model, walkthrough page |

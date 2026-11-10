@@ -11,9 +11,9 @@ default:
 test:
     uv run pytest -q
 
-# Run the whole simulation pipeline offline with the fake model; writes runs/dry.
+# Run the whole simulation pipeline offline with the fake model; writes runs/dry-<time>.
 sim-dry minutes="4":
-    uv run knowhow sim {{event}} {{sim}} --dry-run --minutes {{minutes}} --out runs/dry
+    uv run knowhow sim {{event}} {{sim}} --dry-run --minutes {{minutes}} --out runs/dry-$(date +%Y%m%d-%H%M%S)
 
 # Run a short real simulation (costs money). Usage: just sim-mini openrouter:<slug>
 sim-mini model minutes="6" groups="A-2291,C-4817":

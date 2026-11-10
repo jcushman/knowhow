@@ -88,6 +88,7 @@ class GroupState(BaseModel):
     coached_through: int = 0  # number of utterances already sent to the coach
     turn_started_t: float = 0.0
     picks: list[dict] = Field(default_factory=list)  # which suggestions were used, for evaluation
+    asked: list[str] = Field(default_factory=list)  # every question that has been the current one
 
 
 # ---------------------------------------------------------------------------

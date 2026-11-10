@@ -2,13 +2,16 @@
 
 Every LLM call in the project goes through `LLM.parse`, which returns a
 validated Pydantic object. `make_llm` picks a backend from the model name:
-`openrouter:<slug>` goes to OpenRouter, anything else to the Anthropic API.
+`openrouter:<slug>` goes to OpenRouter, `local:<model>` to any server with an
+OpenAI-compatible chat completions API (KNOWHOW_MODEL_BASE_URL), anything
+else to the Anthropic API.
 `ScriptedLLM` stands in for tests and offline dry runs.
 """
 
 from __future__ import annotations
 
 import copy
+import json
 import os
 import threading
 import time
@@ -28,6 +31,11 @@ class LLMError(RuntimeError):
     pass
 
 
+# Failures a caller can recover from by trying again later: the model's
+# output was unusable, or the provider or network failed.
+TRANSIENT_ERRORS = (LLMError, anthropic.APIError, httpx.HTTPError)
+
+
 class LLM(Protocol):
     def parse(self, *, purpose: str, system: str, user: str, schema: type[T], effort: str) -> T: ...
 
@@ -35,9 +43,15 @@ class LLM(Protocol):
 
 
 OPENROUTER_PREFIX = "openrouter:"
+LOCAL_PREFIX = "local:"
+BASE_URL_ENV = "KNOWHOW_MODEL_BASE_URL"
+LOCAL_KEY_ENV = "KNOWHOW_MODEL_API_KEY"
+EXTRA_BODY_ENV = "KNOWHOW_MODEL_EXTRA_BODY"
 
 
 def make_llm(model: str, fallbacks: bool = True) -> "LLM":
+    if model.startswith(LOCAL_PREFIX):
+        return OpenRouterLLM(model.removeprefix(LOCAL_PREFIX), local=True)
     if model.startswith(OPENROUTER_PREFIX):
         return OpenRouterLLM(model.removeprefix(OPENROUTER_PREFIX))
     return AnthropicLLM(model, fallbacks=fallbacks)
@@ -114,15 +128,31 @@ RETRY_STATUS = {408, 429, 500, 502, 503, 504}
 
 
 class OpenRouterLLM:
-    """Calls one model through OpenRouter's chat completions API with a strict
-    JSON schema. The key comes from OPENROUTER_API_KEY."""
+    """Calls one model through an OpenAI-style chat completions API with a
+    strict JSON schema: OpenRouter (key from OPENROUTER_API_KEY), or with
+    local=True any compatible server at KNOWHOW_MODEL_BASE_URL (optional key
+    from KNOWHOW_MODEL_API_KEY). KNOWHOW_MODEL_EXTRA_BODY holds JSON merged
+    into every local request, e.g. '{"chat_template_kwargs": {"enable_thinking": false}}'
+    for Qwen models served by vLLM."""
 
     URL = "https://openrouter.ai/api/v1/chat/completions"
 
-    def __init__(self, model: str, max_tokens: int = 16000, attempts: int = 3):
-        key = os.environ.get("OPENROUTER_API_KEY")
-        if not key:
-            raise LLMError("OPENROUTER_API_KEY is not set")
+    def __init__(self, model: str, max_tokens: int = 16000, attempts: int = 3, local: bool = False):
+        self.local = local
+        self.extra_body: dict = {}
+        if local:
+            base = os.environ.get(BASE_URL_ENV)
+            if not base:
+                raise LLMError(f"{BASE_URL_ENV} is not set (or pass --model-base-url)")
+            self.url = base.rstrip("/") + "/chat/completions"
+            key = os.environ.get(LOCAL_KEY_ENV, "none")
+            if os.environ.get(EXTRA_BODY_ENV):
+                self.extra_body = json.loads(os.environ[EXTRA_BODY_ENV])
+        else:
+            self.url = self.URL
+            key = os.environ.get("OPENROUTER_API_KEY")
+            if not key:
+                raise LLMError("OPENROUTER_API_KEY is not set")
         self.model = model
         self.max_tokens = max_tokens
         self.attempts = attempts
@@ -133,7 +163,7 @@ class OpenRouterLLM:
     def _post(self, body: dict) -> dict:
         for attempt in range(1, self.attempts + 1):
             try:
-                r = self.http.post(self.URL, json=body)
+                r = self.http.post(self.url, json=body)
             except httpx.TimeoutException:
                 if attempt == self.attempts:
                     raise
@@ -156,6 +186,10 @@ class OpenRouterLLM:
             "reasoning": {"effort": OPENROUTER_EFFORT[effort]},
             "provider": {"require_parameters": True},
         }
+        if self.local:
+            # OpenRouter's routing and reasoning fields mean nothing to a local server.
+            del body["reasoning"], body["provider"]
+            body.update(self.extra_body)
         # Providers occasionally return a cut-off JSON body with a normal finish
         # reason; that is retried like a transport error.
         for attempt in range(1, self.attempts + 1):

@@ -13,8 +13,6 @@ import threading
 import time
 from importlib import resources
 
-import anthropic
-import httpx
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
@@ -24,7 +22,7 @@ from starlette.routing import Route
 from .asr import ASR, suffix_for
 from .engine import Session
 from .health import Health
-from .llm import LLMError
+from .llm import TRANSIENT_ERRORS
 
 MAX_AUDIO_BYTES = 8 * 1024 * 1024
 
@@ -87,6 +85,7 @@ class App:
 
     def _coach_loop(self) -> None:
         while not self._stop.wait(self.coach_poll_s):
+            self.session.flush()
             now = self.now()
             for code in list(self.session.state.groups):
                 if self.session.coach_due(code, now):
@@ -98,18 +97,22 @@ class App:
         before = self.session.state.groups[code].questions
         self.health.coach_started(code)
         started = self.now()
+        t0 = time.monotonic()
         error = None
+        info = None
         ok = False
         try:
-            self.session.coach(code, now)
+            info = self.session.coach(code, now)
             ok = True
-        except (LLMError, anthropic.APIError, httpx.HTTPError) as e:
+        except TRANSIENT_ERRORS as e:
             error = f"{type(e).__name__}: {e}"
         finally:
             if not ok and error is None:
                 error = "unexpected error; see the server log"
             changed = self.session.state.groups[code].questions.current.text != before.current.text
             self.health.coach_finished(code, started, self.now(), error, changed)
+            if info is not None or error is not None:
+                self.session.log_pass(code, now, t0, info, error)
 
     def _warm_asr(self) -> None:
         ok = False
@@ -165,9 +168,10 @@ class App:
         data = await request.body()
         if len(data) > MAX_AUDIO_BYTES:
             return JSONResponse({"error": "segment too large"}, status_code=413)
-        g = self.session.state.groups[code]
-        if g.paused or self.session.state.closed:
-            return JSONResponse({"ok": True, "ignored": True})
+        reason = self.session.refusal(code)
+        if reason:
+            self.session.note_dropped(code, reason)
+            return JSONResponse({"ok": False, "dropped": reason}, status_code=409)
         received = self.now()
         self.session.note_audio(code, device, received)
         self.health.segment_started(code, received)
@@ -176,15 +180,23 @@ class App:
             text = await run_in_threadpool(self.asr.transcribe, data, suffix_for(request.headers.get("content-type", "")))
         finally:
             self.health.segment_finished(code, received, self.now(), text)
+        # The group may have paused, or the session closed, while this segment was transcribed.
+        reason = self.session.refusal(code)
         self.session.ingest(code, text, t=received, source="asr")
+        if reason:
+            return JSONResponse({"ok": False, "dropped": reason}, status_code=409)
         return JSONResponse({"ok": True, "chars": len(text)})
 
     async def text(self, request: Request) -> Response:
         code = self._code(request)
         body = await request.json()
-        self.session.ingest(code, body["text"], t=self.now(), speaker=body.get("speaker"), source=body.get("source", "typed"))
-        self.health.typed(code, body["text"], self.now())
-        return JSONResponse({"ok": True})
+        reason = self.session.refusal(code)
+        u = self.session.ingest(code, body["text"], t=self.now(), speaker=body.get("speaker"), source=body.get("source", "typed"))
+        if reason:
+            return JSONResponse({"ok": False, "dropped": reason}, status_code=409)
+        if u is not None:
+            self.health.typed(code, body["text"], self.now())
+        return JSONResponse({"ok": True, "stored": u is not None})
 
     async def pause(self, request: Request) -> Response:
         code = self._code(request)
@@ -225,8 +237,13 @@ class App:
             self._admin(request)
         except PermissionError:
             return JSONResponse({"error": "forbidden"}, status_code=403)
-        self.session.close()
-        threading.Thread(target=self.session.synthesize, daemon=True, name="synthesis").start()
+        self.session.close()  # phones stop being heard at once
+
+        def finish() -> None:
+            self.session.final_pass(self.now())  # the last lines of each group reach the map
+            self.session.synthesize()
+
+        threading.Thread(target=finish, daemon=True, name="final-pass-and-synthesis").start()
         return JSONResponse({"ok": True})
 
     async def strike(self, request: Request) -> Response:

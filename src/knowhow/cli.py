@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from datetime import datetime
@@ -12,7 +13,11 @@ from .config import load_event
 from .llm import make_llm
 
 
-MODEL_HELP = "model for every role, overriding the event config; 'openrouter:<slug>' uses OpenRouter"
+MODEL_HELP = (
+    "model for every role, overriding the event config; 'openrouter:<slug>' uses OpenRouter, "
+    "'local:<model>' an OpenAI-compatible server"
+)
+BASE_URL_HELP = "base URL of the OpenAI-compatible server for 'local:<model>' (or set KNOWHOW_MODEL_BASE_URL)"
 
 
 def _llms(cfg, args):
@@ -93,6 +98,15 @@ def cmd_walkthrough(args) -> None:
     print(write_walkthrough(Path(args.run), load_event(args.event), load_sim(args.sim)))
 
 
+def cmd_handout(args) -> None:
+    from .handout import write_handout
+
+    out = write_handout(load_event(args.event), Path(args.out), args.public_url)
+    print(out)
+    if not args.public_url:
+        print("No --public-url given: the QR codes point to a placeholder address.")
+
+
 def cmd_purge(args) -> None:
     data = Path(args.data)
     targets = [p for p in data.iterdir() if p.name != "output"] if data.exists() else []
@@ -122,6 +136,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--public-url", help="the tunnel URL, for printing join links")
     s.add_argument("--dry-run", action="store_true", help="use the offline fake LLM")
     s.add_argument("--model", help=MODEL_HELP)
+    s.add_argument("--model-base-url", help=BASE_URL_HELP)
     s.set_defaults(fn=cmd_serve)
 
     s = sub.add_parser("sim", help="run an agent-played session and score it")
@@ -138,6 +153,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--speaker-labels", action="store_true", help="give the coach speaker labels (ASR won't)")
     s.add_argument("--dry-run", action="store_true", help="use the offline fake LLM everywhere")
     s.add_argument("--model", help=MODEL_HELP)
+    s.add_argument("--model-base-url", help=BASE_URL_HELP)
     s.set_defaults(fn=cmd_sim)
 
     s = sub.add_parser("draft", help="(re)draft the playbook from a session directory")
@@ -145,6 +161,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--data", required=True)
     s.add_argument("--dry-run", action="store_true")
     s.add_argument("--model", help=MODEL_HELP)
+    s.add_argument("--model-base-url", help=BASE_URL_HELP)
     s.set_defaults(fn=cmd_draft)
 
     s = sub.add_parser("walkthrough", help="write an HTML walkthrough of a simulated run")
@@ -153,12 +170,20 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("run", help="run directory from 'knowhow sim'")
     s.set_defaults(fn=cmd_walkthrough)
 
+    s = sub.add_parser("handout", help="write printable table handouts (one page per group)")
+    s.add_argument("event")
+    s.add_argument("--public-url", help="the session's public URL, as passed to serve")
+    s.add_argument("--out", default="handout.html")
+    s.set_defaults(fn=cmd_handout)
+
     s = sub.add_parser("purge", help="delete transcripts and map state, keeping output/")
     s.add_argument("--data", required=True)
     s.add_argument("--yes", action="store_true")
     s.set_defaults(fn=cmd_purge)
 
     args = ap.parse_args(argv)
+    if getattr(args, "model_base_url", None):
+        os.environ["KNOWHOW_MODEL_BASE_URL"] = args.model_base_url
     args.fn(args)
 
 

@@ -10,6 +10,8 @@ repository establishes, and from things it does not establish.
   never go to the live coach. See [the ADR](adr/2026-11-06-keep_transcripts_unattributed.md).
 - **No stored audio.** Audio segments are transcribed and deleted on the
   organizer's machine. See [the ADR](adr/2026-11-06-transcribe_on_the_organizer_s_laptop_and_keep_no_audio.md).
+- **Pause means not kept.** Lines that arrive while a group is paused, or
+  after the session closes, are refused and never stored.
 - **Purge after sign-off.** `knowhow purge` removes everything in a session
   directory except `output/`.
 - **Nothing dropped silently.** Every map item is either cited in the playbook
@@ -34,7 +36,9 @@ repository establishes, and from things it does not establish.
   - the phone and facilitator HTTP flows;
   - a dry-run simulation;
   - purge;
-  - facilitator health reporting.
+  - facilitator health reporting;
+  - malformed link ids, the final coach pass at close, refused lines,
+    frequent saves, the local model backend and the table handout.
 - `just sim-dry` runs the whole simulation pipeline offline with the fake
   model: conversation, coaching, synthesis, judging and the walkthrough page.
 - The simulation results in [the research note](research/2026-11-06-simulated-runs.md)
