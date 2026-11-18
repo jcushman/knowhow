@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Recorder</title>
+<style>
+  :root { --bg:#F5F6F4; --ink:#1B1F23; --muted:#5A6169; --line:#DADDD8; --teal:#0F6E6E; --rec:#B42318; --ok:#1E7A46; --warn:#8A5300; --warn-bg:#FBEFE6; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system, system-ui, "Segoe UI", sans-serif; }
+  body { min-height:100dvh; display:flex; flex-direction:column; align-items:center; padding:24px 20px calc(24px + env(safe-area-inset-bottom)); gap:18px; }
+  header { width:100%; max-width:520px; display:flex; justify-content:space-between; align-items:baseline; }
+  header .label { font-weight:700; font-size:20px; }
+  header .title { color:var(--muted); font-size:13px; text-align:right; }
+  main { flex:1; width:100%; max-width:520px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; }
+  #rec { width:180px; height:180px; border-radius:90px; border:none; font:600 22px -apple-system, system-ui, sans-serif; color:#fff; background:var(--rec); cursor:pointer; box-shadow:0 4px 18px rgba(0,0,0,.15); }
+  #rec.on { background:#fff; color:var(--rec); border:6px solid var(--rec); }
+  #timer { font:600 34px ui-monospace, Menlo, monospace; font-variant-numeric:tabular-nums; }
+  .meter { width:100%; height:12px; border-radius:6px; background:#E3E6E2; overflow:hidden; }
+  .meter i { display:block; height:100%; width:0%; background:var(--ok); transition:width .08s; }
+  .lines { width:100%; display:flex; flex-direction:column; gap:6px; font-size:15px; }
+  .line { display:flex; gap:8px; align-items:baseline; }
+  .dot { width:9px; height:9px; border-radius:5px; flex:none; display:inline-block; }
+  .ok { background:var(--ok); } .warn { background:#C77700; } .bad { background:var(--rec); } .idle { background:#A9AEB3; }
+  .banner { width:100%; background:var(--warn-bg); border:1px solid #E8C9B3; border-radius:12px; padding:12px 14px; color:var(--warn); font-weight:600; }
+  footer { width:100%; max-width:520px; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  footer button { font:inherit; font-size:14px; background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 14px; cursor:pointer; color:var(--ink); }
+  .small { font-size:13px; color:var(--muted); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header><div class="label" id="label">…</div><div class="title" id="title"></div></header>
+<main>
+  <div class="banner" id="banner" hidden></div>
+  <button id="rec" aria-pressed="false">Record</button>
+  <div id="timer">0:00</div>
+  <div class="meter" aria-label="Microphone level"><i id="level"></i></div>
+  <div class="lines">
+    <div class="line"><span class="dot idle" id="d-mic"></span><span id="t-mic">Microphone off</span></div>
+    <div class="line"><span class="dot idle" id="d-save"></span><span id="t-save">No clips yet</span></div>
+    <div class="line"><span class="dot idle" id="d-up"></span><span id="t-up">Nothing to upload</span></div>
+  </div>
+  <div class="small">Keep this page open and the device plugged in. Audio is saved on this device first, then uploaded, so a dropped connection only delays it.</div>
+</main>
+<footer>
+  <button id="backup">Download a backup of this device's audio</button>
+</footer>
+
+<script>
+(function () {
+  const SEGMENT_MS = 15000;
+  const code = location.pathname.split("/").pop().toUpperCase();
+  const $ = (id) => document.getElementById(id);
+  const store = (() => { try { return window.localStorage; } catch (e) { return null; } })();
+  let device = store && store.getItem("knowhow-rec-device");
+  if (!device) {
+    device = Math.random().toString(36).slice(2, 10);
+    if (store) store.setItem("knowhow-rec-device", device);
+  }
+  const seqKey = `knowhow-rec-seq-${code}`;
+  let seq = Number((store && store.getItem(seqKey)) || 0);
+
+  // ---------------------------------------------------------------- IndexedDB
+  let dbp = null;
+  function db() {
+    if (!dbp) dbp = new Promise((resolve, reject) => {
+      const r = indexedDB.open("knowhow-rec", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("clips", { keyPath: "key" });
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    return dbp;
+  }
+  async function tx(mode, fn) {
+    const d = await db();
+    return new Promise((resolve, reject) => {
+      const t = d.transaction("clips", mode);
+      const out = fn(t.objectStore("clips"));
+      t.oncomplete = () => resolve(out && out.result !== undefined ? out.result : out);
+      t.onerror = () => reject(t.error);
+    });
+  }
+  const putClip = (c) => tx("readwrite", (s) => s.put(c));
+  const allClips = () => tx("readonly", (s) => s.getAll()).then((all) => all.filter((c) => c.code === code).sort((a, b) => a.key < b.key ? -1 : 1));
+
+  // ---------------------------------------------------------------- recording
+  let stream = null, recording = false, startedAt = 0, wakeLock = null, analyser = null, rafId = 0;
+  let saved = 0, saveError = null;
+
+  function pickMime() {
+    for (const m of ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg"]) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return "";
+  }
+
+  function segment() {
+    if (!recording) return;
+    const mime = pickMime();
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const chunks = [];
+    const start = Date.now();
+    const mySeq = seq++;
+    if (store) store.setItem(seqKey, String(seq));
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = async () => {
+      if (recording) segment();  // start the next clip before saving this one
+      const blob = new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" });
+      if (!blob.size) return;
+      const name = `${String(start).padStart(13, "0")}-${device}-${String(mySeq).padStart(5, "0")}`;
+      try {
+        await putClip({ key: `${code}/${name}`, code, name, start, seq: mySeq, duration: Date.now() - start,
+                        mime: blob.type, blob, uploaded: false });
+        saved++; saveError = null;
+      } catch (e) {
+        saveError = String(e);
+      }
+      render(); upload();
+    };
+    rec.start();
+    setTimeout(() => { if (rec.state === "recording") rec.stop(); }, SEGMENT_MS);
+  }
+
+  async function start() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
+    } catch (e) {
+      showBanner("This device couldn't use its microphone. Check the browser's microphone permission, then try again.");
+      return;
+    }
+    recording = true; startedAt = Date.now();
+    try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) { wakeLock = null; }
+    meter();
+    segment();
+    render();
+  }
+
+  function stop() {
+    recording = false;
+    // The running MediaRecorder finishes its clip when its timer fires or
+    // when the tracks end; stopping the tracks ends it now.
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    if (wakeLock) { wakeLock.release(); wakeLock = null; }
+    cancelAnimationFrame(rafId);
+    $("level").style.width = "0%";
+    render();
+  }
+
+  function meter() {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Uint8Array(analyser.fftSize);
+    let lastLoud = Date.now();
+    const tick = () => {
+      if (!recording) { ctx.close(); return; }
+      analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) { const x = (v - 128) / 128; sum += x * x; }
+      const rms = Math.sqrt(sum / buf.length);
+      const pct = Math.min(100, Math.round(rms * 400));
+      $("level").style.width = pct + "%";
+      if (pct > 4) lastLoud = Date.now();
+      const quiet = Date.now() - lastLoud > 20000;
+      $("d-mic").className = "dot " + (quiet ? "warn" : "ok");
+      $("t-mic").textContent = quiet ? "Microphone hears almost nothing. Is it close to the speakers?" : "Microphone is picking up sound";
+      $("timer").textContent = fmt(Date.now() - startedAt);
+      rafId = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  // ---------------------------------------------------------------- upload
+  let uploading = false, backoff = 2000, lastError = null, waiting = 0, uploadedCount = 0;
+  async function upload() {
+    if (uploading) return;
+    uploading = true;
+    try {
+      const pending = (await allClips()).filter((c) => !c.uploaded);
+      waiting = pending.length;
+      for (const c of pending) {
+        const url = `/api/r/${encodeURIComponent(code)}/clip?device=${device}&seq=${c.seq}&start=${c.start}&duration=${c.duration}`;
+        let r;
+        try {
+          r = await fetch(url, { method: "POST", headers: { "content-type": c.mime }, body: c.blob });
+        } catch (e) {
+          lastError = "Can't reach the server. Clips are safe on this device and will upload when it's back.";
+          break;
+        }
+        if (!r.ok) { lastError = `Server refused a clip (${r.status}). It will retry.`; break; }
+        c.uploaded = true;
+        await putClip(c);
+        waiting--; uploadedCount++; lastError = null; backoff = 2000;
+        render();
+      }
+    } finally {
+      uploading = false;
+      render();
+    }
+    if (waiting > 0) {
+      setTimeout(upload, backoff);
+      backoff = Math.min(backoff * 2, 30000);
+    }
+  }
+
+  // ---------------------------------------------------------------- backup
+  // A store-only zip of every clip saved on this device, built in the browser.
+  const crcTable = (() => { const t = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(bytes) { let c = 0xFFFFFFFF; for (const b of bytes) c = crcTable[(c ^ b) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  async function backup() {
+    const clips = await allClips();
+    if (!clips.length) { showBanner("No audio saved on this device yet."); return; }
+    const enc = new TextEncoder(), parts = [], central = [];
+    let offset = 0;
+    for (const c of clips) {
+      const ext = c.mime.includes("mp4") ? "m4a" : c.mime.includes("ogg") ? "ogg" : "webm";
+      const name = enc.encode(`${code}/${c.name}.${ext}`);
+      const data = new Uint8Array(await c.blob.arrayBuffer());
+      const crc = crc32(data);
+      const local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint32(14, crc, true);
+      local.setUint32(18, data.length, true); local.setUint32(22, data.length, true); local.setUint16(26, name.length, true);
+      parts.push(local, name, data);
+      const cen = new DataView(new ArrayBuffer(46));
+      cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true); cen.setUint32(16, crc, true);
+      cen.setUint32(20, data.length, true); cen.setUint32(24, data.length, true); cen.setUint16(28, name.length, true); cen.setUint32(42, offset, true);
+      central.push(cen, name);
+      offset += 30 + name.length + data.length;
+    }
+    const cenSize = central.reduce((n, p) => n + (p.byteLength || p.length), 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, clips.length, true); end.setUint16(10, clips.length, true);
+    end.setUint32(12, cenSize, true); end.setUint32(16, offset, true);
+    const blob = new Blob([...parts, ...central, end], { type: "application/zip" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${code}-${device}-audio.zip`;
+    a.click();
+  }
+
+  // ---------------------------------------------------------------- ui
+  function fmt(ms) { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
+  function showBanner(t) { $("banner").textContent = t; $("banner").hidden = !t; }
+  function render() {
+    const b = $("rec");
+    b.textContent = recording ? "Stop" : "Record";
+    b.className = recording ? "on" : "";
+    b.setAttribute("aria-pressed", String(recording));
+    if (!recording) { $("d-mic").className = "dot idle"; $("t-mic").textContent = "Microphone off"; }
+    $("d-save").className = "dot " + (saveError ? "bad" : saved ? "ok" : "idle");
+    $("t-save").textContent = saveError ? `Couldn't save audio on this device: ${saveError}` : saved ? `${saved} clips saved on this device this session` : (recording ? "Saving the first clip…" : "No clips yet");
+    $("d-up").className = "dot " + (lastError ? "warn" : waiting ? "warn" : uploadedCount ? "ok" : "idle");
+    $("t-up").textContent = lastError ? `${waiting} waiting to upload. ${lastError}` : waiting ? `${waiting} waiting to upload` : uploadedCount ? "All clips uploaded" : "Nothing to upload";
+  }
+
+  $("rec").onclick = () => { showBanner(""); recording ? stop() : start(); };
+  $("backup").onclick = backup;
+  window.addEventListener("beforeunload", (e) => { if (recording || waiting) { e.preventDefault(); e.returnValue = ""; } });
+  window.addEventListener("online", upload);
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "visible" && recording && !wakeLock) {
+      try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+    }
+  });
+
+  fetch(`/api/r/${encodeURIComponent(code)}/info`).then((r) => r.json()).then((d) => {
+    $("label").textContent = d.label || code; $("title").textContent = d.title || ""; document.title = `${d.label} recorder`;
+  }).catch(() => { $("label").textContent = code; });
+  upload();  // anything left from an earlier visit
+  render();
+})();
+</script>
+</body>
+</html>

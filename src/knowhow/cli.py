@@ -176,6 +176,10 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--out", default="handout.html")
     s.set_defaults(fn=cmd_handout)
 
+    from .record.commands import add_parser as add_rec_parser
+
+    add_rec_parser(sub)
+
     s = sub.add_parser("purge", help="delete transcripts and map state, keeping output/")
     s.add_argument("--data", required=True)
     s.add_argument("--yes", action="store_true")

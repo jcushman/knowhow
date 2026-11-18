@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipeline status</title>
+<style>
+  :root { --bg:#F5F6F4; --ink:#1B1F23; --muted:#5A6169; --line:#DADDD8; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system, system-ui, sans-serif; padding:20px 24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-top:14px; }
+  .box { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
+  .box.warn { border-color:#E8C48C; } .box.bad { border-color:#E7A39C; }
+  .head { display:flex; gap:8px; align-items:flex-start; font-weight:600; }
+  .dot { width:9px; height:9px; border-radius:5px; flex:none; margin-top:6px; }
+  .ok { background:#1E7A46; } .warn { background:#C77700; } .bad { background:#B42318; } .idle { background:#A9AEB3; }
+  table { border-collapse:collapse; font-size:13px; }
+  td { padding:2px 10px 2px 0; } td:first-child { color:var(--muted); }
+</style>
+</head>
+<body>
+<h1 id="title">Pipeline status</h1>
+<div class="muted" id="sub">Counts only; no transcript text is shown here.</div>
+<div class="grid" id="groups"></div>
+<script>
+(function () {
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  async function refresh() {
+    let d;
+    try { d = await (await fetch("/api/status", { cache: "no-store" })).json(); }
+    catch (e) { document.getElementById("sub").textContent = "Can't reach the server."; return; }
+    document.getElementById("title").textContent = d.title;
+    const dig = d.digest_updated ? `Insights digest updated ${Math.round(d.time - d.digest_updated)} s ago.` : "No insights digest yet.";
+    document.getElementById("sub").textContent = `Counts only; no transcript text is shown here. ${dig}`;
+    document.getElementById("groups").innerHTML = Object.entries(d.groups).map(([code, g]) => {
+      const last = g.seconds_since_last_clip == null ? "never" : `${g.seconds_since_last_clip} s ago`;
+      return `<div class="box ${g.state}">
+        <div class="head"><span class="dot ${g.state}"></span><span>${esc(g.label)} <span class="muted">${esc(code)}</span><br>${esc(g.headline)}</span></div>
+        <table>
+          <tr><td>Audio clips</td><td>${g.clips} · last ${last} · ${g.devices.length} device(s)</td></tr>
+          <tr><td>Transcribed</td><td>${g.transcribed} · waiting ${g.waiting_for_transcription}${g.transcription_failed.length ? ` · failed ${g.transcription_failed.length}` : ""}</td></tr>
+          <tr><td>Extracted</td><td>${g.extracted_clips} clips · waiting ${g.waiting_for_extraction}</td></tr>
+          <tr><td>Insights</td><td>${g.insights} from ${g.windows} windows${g.failed_windows ? ` · ${g.failed_windows} failed` : ""}</td></tr>
+        </table>
+      </div>`;
+    }).join("");
+  }
+  refresh(); setInterval(refresh, 3000);
+})();
+</script>
+</body>
+</html>

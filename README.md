@@ -124,6 +124,54 @@ If you have profiles of real participants, use them only for `group_hints`
 or a prepared question bank. Never give them to the live coach: a coach that
 knows who is in a group can attach names to what was said.
 
+## Record mode
+
+A simpler setup for sessions without live coaching: groups talk, a
+recording device on each table records, and a local model extracts insights
+for a presentation the room reviews afterwards. Each stage reads one folder
+and writes the next, and any stage can stop, restart or be swapped out
+without losing work:
+
+| Folder | Written by |
+|---|---|
+| `audio/<group>/` | the capture server, one 15-second clip per file |
+| `text/<group>/` | any transcriber: `<clip>.txt`, or `<clip>.json` with a `text` field |
+| `output/insights/<group>/` | the extract worker, one file per few minutes of talk |
+| `output/insights.md` | the extract worker: a readable digest grouped by the event's `steps` |
+
+```bash
+uv run knowhow rec run local/events/my-event.yaml --data sessions/my-event --model local:<model> --model-base-url http://127.0.0.1:8080/v1
+```
+
+`rec run` starts the capture server, the transcriber and the extractor as
+separate processes and restarts any that exits. It prints one recording link
+per group and a status page (`/status`) that shows counts only, never text.
+
+- **Recording page:** one Record button, a level meter, and upload status.
+  Each clip is saved on the device before upload and retried until the
+  server has it, so a dropped connection only delays audio. Closing the tab
+  keeps unsent clips; reopening the page uploads them. "Download a backup"
+  saves every clip on the device as a zip. Browsers need HTTPS for the
+  microphone except on `localhost`.
+- **Speech recognition:** `--asr mlx-whisper` (default; `uv sync --extra asr`),
+  `--asr command --asr-command "my-asr {audio}"` for any tool that prints a
+  transcript, or skip the built-in worker and have another tool write
+  `text/<group>/<clip>.txt`.
+- **Extraction** uses any model `--model` accepts; `local:<model>` keeps
+  transcripts on your own hardware. The event config's `steps` are the
+  headings insights are sorted under.
+- **Presentation:** [docs/record-mode-presenter.md](docs/record-mode-presenter.md)
+  has instructions for a chat agent that watches the digest and builds the
+  deck with the facilitator. It reads insights only.
+- **Rehearsal:** `knowhow rec replay http://127.0.0.1:8000 A-2291 talk.m4a`
+  cuts any recording into clips and uploads them in real time (`--speed 0`
+  for as fast as possible).
+- **After the session:** `knowhow rec status ...` shows what's left.
+  `knowhow rec closeout ...` extracts any remaining transcript, then deletes
+  the audio after you confirm. Transcripts and insights stay until
+  `knowhow purge` once the room signs off. See
+  [the decision record](docs/adr/2026-11-13-record_mode_keeps_audio_until_closeout.md).
+
 ## Simulations
 
 `knowhow sim EVENT SIM` runs the real engine with language-model players:
@@ -191,6 +239,7 @@ Audio stays on the laptop.
 | `just sim-mini MODEL` | Short real simulation; costs money |
 | `just walkthrough RUN` | Rebuild a run's `walkthrough.html` |
 | `just serve-dry` | Local server with the fake model and no microphone |
+| `just rec-dry` | Record mode with fake transcription and extraction, at http://127.0.0.1:8000 |
 | `just adr "Title"` | Start a decision record |
 
 ## Layout
@@ -203,6 +252,7 @@ Audio stays on the laptop.
 | `src/knowhow/server.py`, `static/` | Phone, facilitator and join pages and their APIs |
 | `src/knowhow/health.py` | Per-group pipeline status for the facilitator page |
 | `src/knowhow/handout.py` | Printable table handouts |
+| `src/knowhow/record/` | Record mode: capture, transcribe and extract workers, status, replay, closeout |
 | `src/knowhow/asr.py` | Speech recognition backends |
 | `src/knowhow/llm.py` | Model clients (Anthropic SDK, OpenRouter) |
 | `src/knowhow/sim/` | Simulated players, runner, judge, offline fake model, walkthrough page |

@@ -5,6 +5,7 @@ Create one with `just adr "Decision title"`.
 
 | Date | Title | Status |
 |---|---|---|
+| 2026-11-13 | [Record mode keeps audio until closeout](2026-11-13-record_mode_keeps_audio_until_closeout.md) | Accepted |
 | 2026-11-06 | [Account for every map item in code](2026-11-06-account_for_every_map_item_in_code.md) | Accepted |
 | 2026-11-06 | [Keep transcripts unattributed](2026-11-06-keep_transcripts_unattributed.md) | Accepted |
 | 2026-11-06 | [Map during the session, draft the playbook afterward](2026-11-06-map_during_the_session_draft_the_playbook_afterward.md) | Accepted |

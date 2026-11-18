@@ -27,6 +27,10 @@ walkthrough run:
 serve-dry:
     uv run knowhow serve {{event}} --data sessions/dry --asr none --dry-run --admin-key dev
 
+# Record mode with fake transcription and extraction, at http://127.0.0.1:8000.
+rec-dry:
+    uv run python -u -m knowhow.cli rec run {{event}} --data sessions/rec-dry --asr fake --dry-run
+
 # Regenerate the ADR index from the records under docs/adr/.
 docs-adr-index:
     python3 scripts/build_adr_index.py

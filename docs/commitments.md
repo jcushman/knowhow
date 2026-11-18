@@ -8,8 +8,11 @@ repository establishes, and from things it does not establish.
 - **No attribution.** Transcripts, map items, phone notes and the playbook
   carry no participant names or identifying details. Participant profiles
   never go to the live coach. See [the ADR](adr/2026-11-06-keep_transcripts_unattributed.md).
-- **No stored audio.** Audio segments are transcribed and deleted on the
-  organizer's machine. See [the ADR](adr/2026-11-06-transcribe_on_the_organizer_s_laptop_and_keep_no_audio.md).
+- **Audio stays on the organizer's machine and is deleted.** In coach mode
+  each segment is deleted once transcribed
+  ([ADR](adr/2026-11-06-transcribe_on_the_organizer_s_laptop_and_keep_no_audio.md)).
+  In record mode clips are kept until `knowhow rec closeout` at the end of
+  the event ([ADR](adr/2026-11-13-record_mode_keeps_audio_until_closeout.md)).
 - **Pause means not kept.** Lines that arrive while a group is paused, or
   after the session closes, are refused and never stored.
 - **Purge after sign-off.** `knowhow purge` removes everything in a session

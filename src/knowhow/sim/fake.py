@@ -66,6 +66,18 @@ def respond(purpose: str, system: str, user: str, schema: type[BaseModel]) -> Ba
             weak_claims=[],
             observations=["Dry run: responses are mechanical."],
         )
+    from ..record.extract import Insight, InsightBatch
+
+    if schema is InsightBatch:
+        new = user.split("<new_transcript>", 1)[1]
+        lines = re.findall(r"^\[([^\]]+)\] (.*)$", new, flags=re.M)
+        steps = re.findall(r"^- (.*)$", user.split("<steps>", 1)[1].split("</steps>", 1)[0], flags=re.M)
+        return InsightBatch(
+            insights=[
+                Insight(text=text[:140], kind="case", step=steps[0] if steps else "other", specific=True, clips=[clip])
+                for clip, text in lines[:2]
+            ]
+        )
     raise TypeError(f"fake LLM has no response for {schema.__name__} ({purpose})")
 
 

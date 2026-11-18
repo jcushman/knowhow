@@ -28,8 +28,11 @@ class EventConfig(BaseModel):
     goal: str
     minutes: int = 45
     groups: list[GroupConfig]
-    opening_questions: list[str]
-    fallback_questions: list[str]
+    opening_questions: list[str] = Field(default_factory=list)
+    fallback_questions: list[str] = Field(default_factory=list)
+    # Record mode: the stages the room walks through, in order. Extracted
+    # insights are sorted under these headings.
+    steps: list[str] = Field(default_factory=list)
     closing_question: str = "What didn't I ask that I should have?"
     # Topic lenses feed only coverage hints for the coach; they are never the
     # playbook outline (to avoid premature convergence).
