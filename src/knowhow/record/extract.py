@@ -10,14 +10,16 @@ from __future__ import annotations
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import httpx
 from pydantic import BaseModel, Field
 
 from ..config import EventConfig
 from ..llm import LLM, TRANSIENT_ERRORS
 from ..models import ItemKind
-from .spool import MAX_ATTEMPTS, Spool, atomic_write, attempts, begin_attempt, record_error, write_json
+from .spool import MAX_ATTEMPTS, Spool, atomic_write, attempts, begin_attempt, forget_attempt, record_error, write_json
 
 MIN_CHARS = 1200  # about a minute and a half of talk
 MAX_WAIT_S = 150.0  # extract a short window anyway once its first line is this old
@@ -181,6 +183,10 @@ def extract_window(
         )
     except TRANSIENT_ERRORS as e:
         record_error(spool, "extract", group, first, f"{type(e).__name__}: {e}")
+        if isinstance(e, httpx.TransportError):
+            # The model server couldn't be reached: that says nothing about this
+            # window, so it doesn't count toward giving up on it.
+            forget_attempt(spool, "extract", group, first)
         log(f"extract {group}/{first} failed (attempt {n}): {str(e)[:200]}")
         return False
     steps = set(cfg.steps or cfg.lenses)
@@ -234,14 +240,20 @@ def write_digest(cfg: EventConfig, spool: Spool) -> None:
 
 
 def run_once(llm: LLM, cfg: EventConfig, spool: Spool, model: str, force: bool = False, log=print) -> int:
-    """Extract every window that is ready. Returns the number written."""
-    done = 0
-    for g in cfg.groups:
+    """Extract every window that is ready. Groups run in parallel (a model
+    server such as vLLM handles several requests at nearly the cost of one);
+    each group's windows go in order. Returns the number written."""
+
+    def one_group(code: str) -> int:
+        n = 0
         while True:
-            window = next_window(spool, g.code, time.time(), force)
-            if not window or not extract_window(llm, cfg, spool, g.code, window, model, log):
-                break
-            done += 1
+            window = next_window(spool, code, time.time(), force)
+            if not window or not extract_window(llm, cfg, spool, code, window, model, log):
+                return n
+            n += 1
+
+    with ThreadPoolExecutor(max_workers=max(1, len(cfg.groups))) as pool:
+        done = sum(pool.map(one_group, [g.code for g in cfg.groups]))
     if done:
         write_digest(cfg, spool)
     return done

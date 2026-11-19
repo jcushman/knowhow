@@ -9,7 +9,7 @@ import time
 from ..config import EventConfig
 from .spool import MAX_ATTEMPTS, Spool, errors
 
-QUIET_S = 45.0  # browsers upload a clip every ~15 s while recording
+QUIET_S = 75.0  # browsers upload a clip every ~30 s while recording
 STUCK_S = 300.0  # a waiting clip this old means a stage is not keeping up
 
 

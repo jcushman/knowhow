@@ -164,7 +164,8 @@ class OpenRouterLLM:
         for attempt in range(1, self.attempts + 1):
             try:
                 r = self.http.post(self.url, json=body)
-            except httpx.TimeoutException:
+            except httpx.TransportError:
+                # Timeouts and dropped connections (flaky wifi) are worth retrying.
                 if attempt == self.attempts:
                     raise
             else:

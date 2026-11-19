@@ -49,7 +49,7 @@
 
 <script>
 (function () {
-  const SEGMENT_MS = 15000;
+  const SEGMENT_MS = 30000;  // whisper's native window; fewer words cut at clip boundaries
   const code = location.pathname.split("/").pop().toUpperCase();
   const $ = (id) => document.getElementById(id);
   const store = (() => { try { return window.localStorage; } catch (e) { return null; } })();

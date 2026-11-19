@@ -134,7 +134,7 @@ without losing work:
 
 | Folder | Written by |
 |---|---|
-| `audio/<group>/` | the capture server, one 15-second clip per file |
+| `audio/<group>/` | the capture server, one 30-second clip per file |
 | `text/<group>/` | any transcriber: `<clip>.txt`, or `<clip>.json` with a `text` field |
 | `output/insights/<group>/` | the extract worker, one file per few minutes of talk |
 | `output/insights.md` | the extract worker: a readable digest grouped by the event's `steps` |

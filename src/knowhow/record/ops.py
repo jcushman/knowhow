@@ -40,7 +40,7 @@ def httpx_post(url: str, data: bytes, headers: dict) -> int:
 
 
 def replay(
-    base_url: str, code: str, src: Path, segment_s: int = 15, speed: float = 1.0,
+    base_url: str, code: str, src: Path, segment_s: int = 30, speed: float = 1.0,
     device: str = "replay", post: Post = httpx_post, log=print,
 ) -> int:
     """Upload a recording to a running capture server as if a browser were

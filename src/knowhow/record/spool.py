@@ -118,6 +118,15 @@ def begin_attempt(spool: Spool, stage: str, group: str, name: str) -> int:
     return n
 
 
+def forget_attempt(spool: Spool, stage: str, group: str, name: str) -> None:
+    """Undo the last begin_attempt, for failures that say nothing about the item."""
+    p = spool.attempts_dir(stage, group) / f"{name}.json"
+    if p.exists():
+        rec = json.loads(p.read_text())
+        rec["attempts"] = max(0, rec["attempts"] - 1)
+        write_json(p, rec)
+
+
 def record_error(spool: Spool, stage: str, group: str, name: str, error: str) -> None:
     p = spool.attempts_dir(stage, group) / f"{name}.json"
     rec = json.loads(p.read_text()) if p.exists() else {"attempts": 1}

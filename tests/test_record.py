@@ -205,3 +205,33 @@ def test_replay_cuts_a_recording_into_uploaded_clips(tmp_path):
                    post=lambda url, data, headers: c.post(url, content=data, headers=headers).status_code, log=lambda *_: None)
     assert n == 3 and len(spool.audio_clips("A-2291")) == 3
     assert all(p.suffix == ".wav" for p in spool.audio_clips("A-2291"))
+
+
+def test_unreachable_model_server_does_not_use_up_attempts(tmp_path):
+    import httpx
+
+    cfg, spool = setup(tmp_path)
+    add_text(spool, "A-2291", "0000000000001-d-00000", SENTENCE * 15)
+
+    def offline(purpose, system, user, schema):
+        raise httpx.ConnectError("no route to host")
+
+    for _ in range(MAX_ATTEMPTS + 2):
+        extract.run_once(ScriptedLLM(offline), cfg, spool, "x", log=lambda *_: None)
+    assert extract.window_files(spool, "A-2291") == []  # not marked failed
+    assert extract.run_once(fake_llm(), cfg, spool, "fake", log=lambda *_: None) == 1  # works once it's back
+
+
+def test_groups_extract_in_parallel(tmp_path):
+    import threading
+
+    cfg, spool = setup(tmp_path)
+    for g in ("A-2291", "B-5530", "C-4817"):
+        add_text(spool, g, "0000000000001-d-00000", SENTENCE * 15)
+    barrier = threading.Barrier(3, timeout=5)
+
+    def together(purpose, system, user, schema):
+        barrier.wait()  # only returns if all three groups are in flight at once
+        return fake_llm().parse(purpose=purpose, system=system, user=user, schema=schema, effort="low")
+
+    assert extract.run_once(ScriptedLLM(together), cfg, spool, "x", log=lambda *_: None) == 3

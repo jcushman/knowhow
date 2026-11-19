@@ -21,7 +21,7 @@ If transcription fails or turns out poor, the words are gone.
 Add a record mode (`knowhow rec`). It is a one-way pipeline in which each
 stage reads one folder and writes the next:
 
-- **Capture.** The browser saves each 15-second clip on the device before
+- **Capture.** The browser saves each 30-second clip on the device before
   uploading it, and retries until the server confirms. The server stores each
   clip once, writing it to a temporary name and renaming it into place.
 - **Transcription.** Any transcriber that writes `text/<group>/<clip>.txt`

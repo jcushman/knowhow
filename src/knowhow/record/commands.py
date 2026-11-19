@@ -54,7 +54,7 @@ def add_parser(sub) -> None:
     s.add_argument("url", help="capture server, e.g. http://127.0.0.1:8000")
     s.add_argument("code", help="group code")
     s.add_argument("audio", help="any file ffmpeg can read")
-    s.add_argument("--segment", type=int, default=15)
+    s.add_argument("--segment", type=int, default=30)
     s.add_argument("--speed", type=float, default=1.0, help="1 is real time; 0 is as fast as possible")
     s.set_defaults(fn=cmd_replay)
 
@@ -88,7 +88,15 @@ def _forward(args) -> list[str]:
 def cmd_run(args) -> None:
     from .ops import supervise, worker_commands
 
+    import os
+    import shutil
+    import subprocess
+
     _setup(args)  # fail fast on a bad config
+    if shutil.which("caffeinate"):
+        # macOS: no idle or system sleep while this process lives (lid closed still sleeps on battery).
+        subprocess.Popen(["caffeinate", "-ims", "-w", str(os.getpid())])
+        print("Keeping this Mac awake while the pipeline runs. Keep it plugged in.")
     print(f"Recording pages: http://{args.host}:{args.port}/   Status: http://{args.host}:{args.port}/status")
     supervise(worker_commands(_forward(args)))
 
@@ -116,8 +124,14 @@ def cmd_transcribe(args) -> None:
     elif args.asr == "fake":
         fn, name = t.fake_transcriber(), "fake"
     else:
+        import os
+
         from ..asr import MlxWhisperASR
 
+        cached = Path.home() / ".cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo"
+        if cached.exists():
+            # The model is on disk: don't let venue wifi stall or fail the load.
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
         asr = MlxWhisperASR(vocabulary=cfg.vocabulary)
         print("Loading the speech model…")
         asr.warm()
