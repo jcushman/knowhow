@@ -91,6 +91,32 @@ def cmd_draft(args) -> None:
         print(f"{name}: {path}")
 
 
+def cmd_transcripts(args) -> None:
+    from . import transcripts
+
+    cfg = load_event(args.event)
+    folder = Path(args.folder)
+    if not folder.is_dir():
+        sys.exit(f"No folder {folder}")
+    if args.dry_run:
+        from .sim.fake import fake_llm
+
+        llm = fake_llm()
+    else:
+        llm = make_llm(args.model or cfg.models.coach, fallbacks=cfg.models.fallbacks)
+    transcribe = None
+    if any(audio and not transcripts.transcript_path(folder, n).exists() for n, audio in transcripts.recordings(folder).items()):
+        from .asr import MlxWhisperASR
+
+        cached = Path.home() / ".cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo"
+        if cached.exists():
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")  # the model is on disk; don't wait on the network
+        asr = MlxWhisperASR(vocabulary=cfg.vocabulary)
+        transcribe = lambda path: asr.transcribe(path.read_bytes(), path.suffix)  # noqa: E731
+    if not transcripts.process(cfg, folder, transcribe, llm):
+        sys.exit(1)
+
+
 def cmd_walkthrough(args) -> None:
     from .sim.runner import load_sim
     from .sim.walkthrough import write_walkthrough
@@ -179,6 +205,14 @@ def main(argv: list[str] | None = None) -> None:
     from .record.commands import add_parser as add_rec_parser
 
     add_rec_parser(sub)
+
+    s = sub.add_parser("transcripts", help="transcribe a folder of recordings and extract insights from each")
+    s.add_argument("event")
+    s.add_argument("folder", help="audio files, one per group (A.m4a, B.m4a, ...); results are written beside them")
+    s.add_argument("--dry-run", action="store_true", help="fake model for extraction")
+    s.add_argument("--model", help=MODEL_HELP)
+    s.add_argument("--model-base-url", help=BASE_URL_HELP)
+    s.set_defaults(fn=cmd_transcripts)
 
     s = sub.add_parser("purge", help="delete transcripts and map state, keeping output/")
     s.add_argument("--data", required=True)

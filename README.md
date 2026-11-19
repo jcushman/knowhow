@@ -166,6 +166,13 @@ per group and a status page (`/status`) that shows counts only, never text.
 - **Rehearsal:** `knowhow rec replay http://127.0.0.1:8000 A-2291 talk.m4a`
   cuts any recording into clips and uploads them in real time (`--speed 0`
   for as fast as possible).
+- **Recordings made some other way** (a phone per table, say):
+  `knowhow transcripts EVENT FOLDER --model ...` transcribes each audio file
+  whole, extracts insights from each transcript in chunks of about 8,000
+  characters, and writes `NAME.txt`, `NAME.insights.json` and a combined
+  `insights.md` beside the recordings, labelled by file name. A `NAME.txt`
+  made with any other tool is used as is. Running it again continues
+  whatever didn't finish.
 - **After the session:** `knowhow rec status ...` shows what's left.
   `knowhow rec closeout ...` extracts any remaining transcript, then deletes
   the audio after you confirm. Transcripts and insights stay until
@@ -253,6 +260,7 @@ Audio stays on the laptop.
 | `src/knowhow/health.py` | Per-group pipeline status for the facilitator page |
 | `src/knowhow/handout.py` | Printable table handouts |
 | `src/knowhow/record/` | Record mode: capture, transcribe and extract workers, status, replay, closeout |
+| `src/knowhow/transcripts.py` | A folder of recordings → whole-file transcripts → insights |
 | `src/knowhow/asr.py` | Speech recognition backends |
 | `src/knowhow/llm.py` | Model clients (Anthropic SDK, OpenRouter) |
 | `src/knowhow/sim/` | Simulated players, runner, judge, offline fake model, walkthrough page |

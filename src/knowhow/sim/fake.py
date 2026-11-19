@@ -78,6 +78,18 @@ def respond(purpose: str, system: str, user: str, schema: type[BaseModel]) -> Ba
                 for clip, text in lines[:2]
             ]
         )
+    from .. import transcripts
+
+    if schema is transcripts.InsightBatch:
+        new = user.split("<new_transcript>", 1)[1].split("</new_transcript>", 1)[0].strip()
+        steps = re.findall(r"^- (.*)$", user.split("<steps>", 1)[1].split("</steps>", 1)[0], flags=re.M)
+        sentences = [x for x in re.split(r"(?<=[.!?])\s+", new) if x][:2]
+        return transcripts.InsightBatch(
+            insights=[
+                transcripts.Insight(text=x[:140], kind="case", step=steps[0] if steps else "other", specific=True)
+                for x in sentences
+            ]
+        )
     raise TypeError(f"fake LLM has no response for {schema.__name__} ({purpose})")
 
 
