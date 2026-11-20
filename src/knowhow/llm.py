@@ -214,8 +214,13 @@ class OpenRouterLLM:
                 raise LLMError(f"{purpose}: refused ({msg['refusal']})")
             if choice.get("finish_reason") == "length":
                 raise LLMError(f"{purpose}: hit max_tokens={self.max_tokens}")
+            text = msg.get("content") or ""
+            if not text and self.local:
+                # LM Studio applies the schema from the first token, and its
+                # reasoning parser then files the whole answer under reasoning_content.
+                text = msg.get("reasoning_content") or ""
             try:
-                return schema.model_validate_json(msg.get("content") or "")
+                return schema.model_validate_json(text)
             except ValidationError as e:
                 with self._lock:
                     self._usage[purpose]["malformed"] += 1
